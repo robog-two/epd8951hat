@@ -169,6 +169,9 @@
 /* Timeout for BUSY GPIO polling (ms) */
 #define EPD_BUSY_TIMEOUT_MS        5000u
 
+/* Default VCOM magnitude in millivolts (overridden by module param or DT) */
+#define EPD_DEFAULT_VCOM           2000u
+
 /* =========================================================================
  * SPI / DMA buffer
  * ========================================================================= */

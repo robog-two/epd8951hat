@@ -7,7 +7,7 @@
  * BUSY GPIO that must be polled before each SPI transfer.
  */
 
-#include <linux/byteorder/generic.h>
+#include <asm/byteorder.h>
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/gpio/consumer.h>
@@ -125,57 +125,6 @@ static int epd_write_data(struct epd_device *epd, u16 data)
 	ret = epd_spi_send_word(epd, data);
 	if (ret)
 		dev_err(&epd->spi->dev, "SPI error sending DATA 0x%04x: %d\n", data, ret);
-
-out_cs_high:
-	gpiod_set_value_cansleep(epd->gpio_cs, 1);
-	return ret;
-}
-
-/*
- * epd_write_multi_data - Bulk-write an array of 16-bit words to IT8951.
- *
- * CS is held LOW for the entire transfer (preamble + all words) to allow
- * DMA-friendly single spi_write() for the payload. The caller must have
- * already packed the payload into epd->spi_buf in big-endian byte order.
- *
- * Sequence:
- *   wait_busy → CS LOW → send preamble 0x0000 → wait_busy →
- *   bulk spi_write(all words as bytes) → CS HIGH
- */
-static int epd_write_multi_data(struct epd_device *epd,
-				const u16 *words, size_t count)
-{
-	size_t i;
-	size_t byte_len = count * sizeof(u16);
-	int ret;
-	__be16 *dst;
-
-	/* Pack words into epd->spi_buf as big-endian */
-	dst = (__be16 *)epd->spi_buf;
-	for (i = 0; i < count; i++)
-		dst[i] = cpu_to_be16(words[i]);
-
-	ret = epd_wait_busy(epd);
-	if (ret)
-		return ret;
-
-	gpiod_set_value_cansleep(epd->gpio_cs, 0);
-
-	ret = epd_spi_send_word(epd, IT8951_PREAMBLE_WRITE);
-	if (ret) {
-		dev_err(&epd->spi->dev,
-			"SPI error sending multi-data preamble: %d\n", ret);
-		goto out_cs_high;
-	}
-
-	ret = epd_wait_busy(epd);
-	if (ret)
-		goto out_cs_high;
-
-	ret = spi_write(epd->spi, epd->spi_buf, byte_len);
-	if (ret)
-		dev_err(&epd->spi->dev,
-			"SPI bulk write error (%zu bytes): %d\n", byte_len, ret);
 
 out_cs_high:
 	gpiod_set_value_cansleep(epd->gpio_cs, 1);

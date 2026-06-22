@@ -1,0 +1,1 @@
+savedcmd_/home/robog/Documents/Code/epd8951hat/epd8951hat.o := ld -EL  -maarch64elf -z noexecstack --no-warn-rwx-segments   -r -o /home/robog/Documents/Code/epd8951hat/epd8951hat.o @/home/robog/Documents/Code/epd8951hat/epd8951hat.mod 

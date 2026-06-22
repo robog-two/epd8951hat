@@ -4,7 +4,8 @@
 #
 # Usage:
 #   make [KDIR=/path/to/kernel/build]   - build the module
-#   make install                         - install + run depmod
+#   make install                         - install module, run depmod, enable autoload on boot
+#   make uninstall                       - remove module and disable autoload
 #   make clean                           - remove build artefacts
 #
 # Cross-compile example (arm64 RPi):
@@ -25,7 +26,10 @@ PWD  := $(shell pwd)
 # Extra CFLAGS: treat warnings as errors, keep frame-pointer for ftrace
 ccflags-y := -Wall -Wextra -Werror -fno-omit-frame-pointer
 
-.PHONY: all clean install
+MODNAME      := epd8951hat
+MODULES_LOAD := /etc/modules-load.d/$(MODNAME).conf
+
+.PHONY: all clean install uninstall
 
 all:
 	$(MAKE) -C $(KDIR) M=$(PWD) modules
@@ -36,3 +40,13 @@ clean:
 install: all
 	$(MAKE) -C $(KDIR) M=$(PWD) modules_install
 	depmod -A
+	@echo "$(MODNAME)" > $(MODULES_LOAD)
+	@echo "Module installed. It will be loaded automatically on next boot."
+	@echo "To load it now without rebooting, run:  sudo modprobe $(MODNAME)"
+
+uninstall:
+	modprobe -r $(MODNAME) 2>/dev/null || true
+	rm -f $(MODULES_LOAD)
+	find /lib/modules -name "$(MODNAME).ko*" -delete
+	depmod -A
+	@echo "Module uninstalled and removed from autoload."
