@@ -41,7 +41,7 @@ all:
 dtbo: $(OVERLAY_DTB)
 
 $(OVERLAY_DTB): $(OVERLAY_SRC)
-	dtc -@ -I dts -O dtb -o $@ $< 2>&1 | grep -v '^/' || true
+	dtc -@ -I dts -O dtb -o $@ $<
 
 test:
 	$(MAKE) -C tests run
