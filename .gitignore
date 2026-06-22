@@ -10,3 +10,4 @@ modules.order
 .tmp_versions/
 
 tests/test_pipeline
+tests/test_pipeline.dSYM/
