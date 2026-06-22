@@ -177,12 +177,13 @@
  * ========================================================================= */
 
 /*
- * Largest possible payload: 1bpp full-screen = EPD_MAX_WIDTH * EPD_MAX_HEIGHT / 8
- * We allocate for 1bpp (the most compact format we actually send).
+ * Largest possible payload: 4bpp full-screen = EPD_MAX_WIDTH * EPD_MAX_HEIGHT / 2
+ * epd_load_image_1bpp converts 1bpp input to 4bpp output (2 pixels per byte)
+ * before DMA-writing to the IT8951, so the buffer must hold the 4bpp result.
  * Add 32 bytes headroom for preamble, command args, and alignment padding.
  */
 #define EPD_SPI_BUF_SIZE \
-	(DIV_ROUND_UP(EPD_MAX_WIDTH * EPD_MAX_HEIGHT, 8) + 32u)
+	(DIV_ROUND_UP(EPD_MAX_WIDTH * EPD_MAX_HEIGHT, 2) + 32u)
 
 /* =========================================================================
  * Hardware device-info structure (returned by GET_DEV_INFO command)

@@ -107,10 +107,18 @@ static struct gpio_desc *epd_get_gpio(struct device *dev,
 		return ERR_PTR(-EINVAL);
 	}
 
-	if (gpiod_direction_output(gd, (flags == GPIOD_OUT_HIGH) ? 1 : 0)) {
-		dev_err(dev, "cannot set direction for GPIO %d ('%s')\n",
-			fallback_num, dt_name);
-		return ERR_PTR(-EIO);
+	if (flags == GPIOD_IN) {
+		if (gpiod_direction_input(gd)) {
+			dev_err(dev, "cannot set direction for GPIO %d ('%s')\n",
+				fallback_num, dt_name);
+			return ERR_PTR(-EIO);
+		}
+	} else {
+		if (gpiod_direction_output(gd, (flags == GPIOD_OUT_HIGH) ? 1 : 0)) {
+			dev_err(dev, "cannot set direction for GPIO %d ('%s')\n",
+				fallback_num, dt_name);
+			return ERR_PTR(-EIO);
+		}
 	}
 
 	return gd;

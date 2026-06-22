@@ -462,8 +462,15 @@ void epd_hw_wakeup(struct epd_device *epd)
 	epd_hw_reset(epd);
 
 	ret = epd_write_cmd(epd, IT8951_CMD_SYS_RUN);
-	if (ret)
+	if (ret) {
 		dev_err(&epd->spi->dev, "SYS_RUN after wakeup failed: %d\n", ret);
+		return;
+	}
+
+	/* Re-enable packed pixel writes; the register is lost across reset. */
+	ret = epd_write_reg(epd, IT8951_REG_I80CPCR, 0x0001u);
+	if (ret)
+		dev_err(&epd->spi->dev, "I80CPCR restore after wakeup failed: %d\n", ret);
 }
 
 /* =========================================================================
@@ -593,15 +600,20 @@ int epd_load_image_1bpp(struct epd_device *epd,
 	u32 base_addr = epd->img_ram_addr;
 	/*
 	 * 4bpp output: 2 pixels per byte → (w * h / 2) bytes.
-	 * w is guaranteed even by caller alignment.
+	 * w is guaranteed even by caller alignment, but (w/2)*h can still be
+	 * odd (e.g. w=2, h=3 → 3 bytes).  The IT8951 SPI interface is 16-bit;
+	 * an odd-byte transfer splits the last word across SPI transactions and
+	 * corrupts the protocol.  Round up to the next even byte and pad with
+	 * 0x00 (white nibbles).
 	 */
-	size_t out_bytes = (size_t)(w / 2) * h;
+	size_t out_bytes     = (size_t)(w / 2) * h;
+	size_t out_bytes_dma = ALIGN(out_bytes, 2);
 	int ret;
 
-	if (out_bytes > epd->spi_buf_size) {
+	if (out_bytes_dma > epd->spi_buf_size) {
 		dev_err(&epd->spi->dev,
 			"load_image_1bpp: region %ux%u needs %zu bytes, spi_buf only %zu\n",
-			w, h, out_bytes, epd->spi_buf_size);
+			w, h, out_bytes_dma, epd->spi_buf_size);
 		return -EINVAL;
 	}
 
@@ -677,11 +689,16 @@ int epd_load_image_1bpp(struct epd_device *epd,
 					n1 = 0x0u;  /* white padding for odd width */
 				}
 
-				dst[dst_pos++] = (n0 << 4) | n1;
+				/* little-endian 4bpp: first pixel in low nibble */
+				dst[dst_pos++] = (n1 << 4) | n0;
 			}
 		}
 
 		WARN_ON(dst_pos != out_bytes);
+
+		/* Pad to even byte count if necessary (white nibble = 0x00). */
+		if (out_bytes_dma > out_bytes)
+			dst[dst_pos] = 0x00;
 	}
 
 	/* 4. Bulk-send spi_buf: preamble + all 4bpp pixel bytes with CS held low. */
@@ -702,7 +719,7 @@ int epd_load_image_1bpp(struct epd_device *epd,
 	if (ret)
 		goto out_cs_high;
 
-	ret = spi_write(epd->spi, epd->spi_buf, out_bytes);
+	ret = spi_write(epd->spi, epd->spi_buf, out_bytes_dma);
 	if (ret)
 		dev_err(&epd->spi->dev,
 			"load_image_1bpp: bulk SPI write failed (%zu bytes): %d\n",
@@ -792,6 +809,18 @@ int epd_full_clear(struct epd_device *epd)
 	size_t out_bytes = (size_t)(epd->panel_w / 2) * epd->panel_h;
 	size_t i;
 	int ret;
+
+	/*
+	 * Wait for any in-progress waveform before writing to image DRAM.
+	 * epd_full_clear is called both from probe (no prior waveform) and from
+	 * epd_do_refresh ghosting-recovery (a waveform may be active).
+	 */
+	ret = epd_wait_display_ready(epd);
+	if (ret) {
+		dev_err(&epd->spi->dev,
+			"full_clear: display not ready before DRAM write: %d\n", ret);
+		return ret;
+	}
 
 	if (out_bytes > epd->spi_buf_size) {
 		dev_err(&epd->spi->dev,

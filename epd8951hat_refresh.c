@@ -124,27 +124,40 @@ static void epd_update_shadow(struct epd_device *epd,
  * ========================================================================= */
 void epd_do_refresh(struct epd_device *epd)
 {
-	unsigned long flags;
 	int x, y, w, h;
 	unsigned int pct;
 	int ret;
+
+	/* Do not talk to the hardware while suspended. */
+	{
+		unsigned long flags;
+
+		spin_lock_irqsave(&epd->state_lock, flags);
+		if (epd->suspended) {
+			spin_unlock_irqrestore(&epd->state_lock, flags);
+			return;
+		}
+		spin_unlock_irqrestore(&epd->state_lock, flags);
+	}
 
 	if (mutex_lock_interruptible(&epd->refresh_mutex))
 		return;
 
 	/* ---- Snapshot dirty state ---------------------------------------- */
-	spin_lock_irqsave(&epd->dirty.lock, flags);
+	/*
+	 * Each helper takes dirty.lock internally; do not hold it here.
+	 * A brief TOCTOU window between reads and clear is harmless: any
+	 * new dirty tiles added in that window will be caught on the next
+	 * refresh cycle.  refresh_mutex prevents concurrent refreshes.
+	 */
 
 	pct = epd_dirty_percent(&epd->dirty, epd->panel_w, epd->panel_h);
 	if (!epd_dirty_bbox_pixels(&epd->dirty, epd->panel_w, epd->panel_h,
 				   &x, &y, &w, &h)) {
 		/* Nothing to do */
-		spin_unlock_irqrestore(&epd->dirty.lock, flags);
 		goto out_unlock;
 	}
 	epd_dirty_clear(&epd->dirty);
-
-	spin_unlock_irqrestore(&epd->dirty.lock, flags);
 
 	/* ---- Full refresh ------------------------------------------------- */
 	if (pct >= EPD_FULL_REFRESH_THRESHOLD) {
@@ -154,6 +167,13 @@ void epd_do_refresh(struct epd_device *epd)
 		ret = epd_full_clear(epd);
 		if (ret) {
 			dev_err(&epd->spi->dev, "full clear failed: %d\n", ret);
+			goto out_unlock;
+		}
+
+		/* Wait for INIT waveform to finish before loading new pixels. */
+		ret = epd_wait_display_ready(epd);
+		if (ret) {
+			dev_err(&epd->spi->dev, "display not ready before load: %d\n", ret);
 			goto out_unlock;
 		}
 
@@ -195,6 +215,13 @@ void epd_do_refresh(struct epd_device *epd)
 		 * entire frame as needing a GC16 re-draw, but only for the
 		 * previously visible content in screen_shadow.
 		 */
+		/* Wait for ghosting-recovery INIT to finish before reloading. */
+		ret = epd_wait_display_ready(epd);
+		if (ret) {
+			dev_err(&epd->spi->dev,
+				"display not ready after ghost clear: %d\n", ret);
+			goto out_unlock;
+		}
 		ret = epd_load_image_1bpp(epd,
 					  epd->fb_vaddr, epd->fb_stride,
 					  0, 0, epd->panel_w, epd->panel_h);
@@ -234,6 +261,14 @@ void epd_do_refresh(struct epd_device *epd)
 	dev_dbg(&epd->spi->dev,
 		"partial A2 refresh (%d,%d)+%dx%d [dirty=%u%%]\n",
 		x, y, w, h, pct);
+
+	/* Wait for any prior waveform before writing new pixel data to DRAM. */
+	ret = epd_wait_display_ready(epd);
+	if (ret) {
+		dev_err(&epd->spi->dev,
+			"display not ready before partial load: %d\n", ret);
+		goto out_unlock;
+	}
 
 	/* Load pixel data for the changed region (1bpp→4bpp inside). */
 	ret = epd_load_image_1bpp(epd, epd->fb_vaddr, epd->fb_stride,
