@@ -28,25 +28,45 @@ ccflags-y := -Wall -Wextra -Werror -fno-omit-frame-pointer
 
 MODNAME      := epd8951hat
 MODULES_LOAD := /etc/modules-load.d/$(MODNAME).conf
+OVERLAY_SRC  := $(PWD)/epd8951hat-overlay.dts
+OVERLAY_DTB  := $(PWD)/epd8951hat.dtbo
+OVERLAYS_DIR := /boot/overlays
+CONFIG_TXT   := /boot/config.txt
 
-.PHONY: all clean install uninstall
+.PHONY: all dtbo clean install uninstall
 
 all:
 	$(MAKE) -C $(KDIR) M=$(PWD) modules
 
+dtbo: $(OVERLAY_DTB)
+
+$(OVERLAY_DTB): $(OVERLAY_SRC)
+	dtc -@ -I dts -O dtb -o $@ $< 2>&1 | grep -v '^/' || true
+
 clean:
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
+	rm -f $(OVERLAY_DTB)
 
-install: all
+install: all dtbo
 	$(MAKE) -C $(KDIR) M=$(PWD) modules_install
 	depmod -A
 	@echo "$(MODNAME)" > $(MODULES_LOAD)
-	@echo "Module installed. It will be loaded automatically on next boot."
-	@echo "To load it now without rebooting, run:  sudo modprobe $(MODNAME)"
+	@install -m 644 $(OVERLAY_DTB) $(OVERLAYS_DIR)/$(MODNAME).dtbo
+	@if grep -q "dtoverlay=$(MODNAME)" $(CONFIG_TXT); then \
+		echo "dtoverlay=$(MODNAME) already in $(CONFIG_TXT)"; \
+	else \
+		echo "dtoverlay=$(MODNAME)" >> $(CONFIG_TXT); \
+		echo "Added dtoverlay=$(MODNAME) to $(CONFIG_TXT)"; \
+	fi
+	@echo ""
+	@echo "Module and overlay installed. Reboot to activate."
+	@echo "After reboot, check:  dmesg | grep epd"
 
 uninstall:
 	modprobe -r $(MODNAME) 2>/dev/null || true
 	rm -f $(MODULES_LOAD)
 	find /lib/modules -name "$(MODNAME).ko*" -delete
 	depmod -A
-	@echo "Module uninstalled and removed from autoload."
+	rm -f $(OVERLAYS_DIR)/$(MODNAME).dtbo
+	@sed -i "/^dtoverlay=$(MODNAME)/d" $(CONFIG_TXT) 2>/dev/null || true
+	@echo "Module and overlay uninstalled."

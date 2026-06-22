@@ -14,16 +14,18 @@
  *     tiles are flagged dirty but the content did not actually change.
  *
  * GPIO/SPI setup:
- *   The IT8951 requires manual CS control (BUSY must be polled between the
- *   SPI preamble word and the payload).  Declare the SPI device without a
- *   hardware chip-select; the driver drives gpio_cs itself.
+ *   The IT8951 latches a transaction only while CS stays asserted across the
+ *   whole "preamble word + payload" sequence.  The SPI/protocol layer keeps
+ *   each transaction inside a single spi_message (see epd8951hat_spi.c), so the
+ *   SPI core's per-message chip-select (native CE0 / the RPi cs-gpio) holds CS
+ *   low for the entire transaction — no separate manual CS GPIO is needed.
  *
  *   Required device-tree properties on the SPI child node:
  *     rst-gpios  = <&gpio 17 GPIO_ACTIVE_HIGH>;   // RST
  *     busy-gpios = <&gpio 24 GPIO_ACTIVE_HIGH>;   // BUSY
- *     cs-gpios   = <&gpio  8 GPIO_ACTIVE_LOW>;    // Manual CS
+ *     reg        = <0>;                           // CS0, driven by SPI core
  *
- *   Or pass gpio_rst/gpio_busy/gpio_cs as module parameters to override.
+ *   Or pass gpio_rst/gpio_busy as module parameters to override.
  */
 
 #include <linux/delay.h>
@@ -63,16 +65,17 @@ static int rotation_param;
 module_param_named(rotation, rotation_param, int, 0644);
 MODULE_PARM_DESC(rotation, "Panel rotation: 0=0°, 1=90°, 2=180°, 3=270°");
 
+static bool mirror_x_param = true;
+module_param_named(mirror_x, mirror_x_param, bool, 0644);
+MODULE_PARM_DESC(mirror_x, "Horizontally mirror output (default on; required for the 10.3\" panel orientation)");
+
 /* GPIO fallback numbers (used when DT properties absent) */
 static int gpio_rst_num  = 17;
 static int gpio_busy_num = 24;
-static int gpio_cs_num   =  8;
 module_param_named(gpio_rst,  gpio_rst_num,  int, 0444);
 module_param_named(gpio_busy, gpio_busy_num, int, 0444);
-module_param_named(gpio_cs,   gpio_cs_num,   int, 0444);
 MODULE_PARM_DESC(gpio_rst,  "RST  GPIO number (default 17, fallback if DT absent)");
 MODULE_PARM_DESC(gpio_busy, "BUSY GPIO number (default 24, fallback if DT absent)");
-MODULE_PARM_DESC(gpio_cs,   "CS   GPIO number (default  8, fallback if DT absent)");
 
 /* =========================================================================
  * GPIO acquisition helper
@@ -414,6 +417,7 @@ static int epd_probe(struct spi_device *spi)
 	/* Apply module params */
 	epd->vcom_mv         = (u16)clamp(vcom_mv_param, 0, 5000);
 	epd->rotation        = clamp(rotation_param, 0, 3);
+	epd->mirror_x        = mirror_x_param;
 	epd->enhance_driving = enhance_drv_param;
 
 	/* ---- GPIO setup --------------------------------------------------- */
@@ -433,20 +437,8 @@ static int epd_probe(struct spi_device *spi)
 		goto err_free_info;
 	}
 
-	epd->gpio_cs = epd_get_gpio(&spi->dev, "cs", gpio_cs_num,
-				    GPIOD_OUT_HIGH);
-	if (IS_ERR(epd->gpio_cs)) {
-		ret = PTR_ERR(epd->gpio_cs);
-		dev_err(&spi->dev, "cannot get CS GPIO: %d\n", ret);
-		goto err_free_info;
-	}
-
 	/* ---- Configure SPI bus -------------------------------------------- */
-	/*
-	 * SPI_NO_CS: we drive CS manually via gpio_cs so the SPI controller
-	 * must not assert any hardware chip-select.
-	 */
-	spi->mode          = SPI_MODE_0 | SPI_NO_CS;
+	spi->mode          = SPI_MODE_0;
 	spi->bits_per_word = 8;
 	spi->max_speed_hz  = 8000000;   /* 8 MHz; safe for RPi 4 (32× divider) */
 	ret = spi_setup(spi);

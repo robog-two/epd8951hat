@@ -238,7 +238,6 @@ struct epd_device {
 	struct spi_device  *spi;
 	struct gpio_desc   *gpio_rst;
 	struct gpio_desc   *gpio_busy;
-	struct gpio_desc   *gpio_cs;
 
 	/* ---- Hardware info (from GET_DEV_INFO) ---- */
 	struct it8951_dev_info dev_info;
@@ -250,6 +249,7 @@ struct epd_device {
 	/* ---- Panel configuration ---- */
 	u16  panel_w, panel_h;
 	int  rotation;
+	bool mirror_x;          /* horizontal (left-right) mirror of output */
 	u16  vcom_mv;           /* VCOM magnitude in millivolts (positive) */
 	bool enhance_driving;
 
