@@ -8,6 +8,7 @@
  */
 
 #include <asm/byteorder.h>
+#include <linux/bitrev.h>
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/gpio/consumer.h>
@@ -619,17 +620,10 @@ int epd_load_image_1bpp(struct epd_device *epd,
 	for (row = 0; row < (int)h; row++) {
 		const u8 *src = fb_base + (size_t)((int)y + row) * fb_stride + x / 8;
 
-		if (epd->mirror_x)
-		{
-			int j;
+		for (int j = 0; j < (int)row_bytes; j++) {
+			dst[j] = bitrev8(src[row_bytes - 1 - j]);
+		}
 
-			for (j = 0; j < (int)row_bytes; j++)
-				dst[j] = bitrev8(src[row_bytes - 1 - j]);
-		}
-		else
-		{
-			memcpy(dst, src, row_bytes);
-		}
 		dst += row_bytes;
 	}
 	if (out_bytes_dma > out_bytes)
