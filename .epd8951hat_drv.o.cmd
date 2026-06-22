@@ -1,8 +1,9 @@
-savedcmd_/home/robog/Documents/Code/epd8951hat/epd8951hat_spi.o := gcc -Wp,-MMD,/home/robog/Documents/Code/epd8951hat/.epd8951hat_spi.o.d -nostdinc -I./arch/arm64/include -I./arch/arm64/include/generated  -I./include -I./arch/arm64/include/uapi -I./arch/arm64/include/generated/uapi -I./include/uapi -I./include/generated/uapi -include ./include/linux/compiler-version.h -include ./include/linux/kconfig.h -include ./include/linux/compiler_types.h -D__KERNEL__ -mlittle-endian -DCC_USING_PATCHABLE_FUNCTION_ENTRY -DKASAN_SHADOW_SCALE_SHIFT= -fmacro-prefix-map=./= -std=gnu11 -fshort-wchar -funsigned-char -fno-common -fno-PIE -fno-strict-aliasing -mgeneral-regs-only -DCONFIG_CC_HAS_K_CONSTRAINT=1 -Wno-psabi -mabi=lp64 -fno-asynchronous-unwind-tables -fno-unwind-tables -mbranch-protection=pac-ret -Wa,-march=armv8.5-a -DARM64_ASM_ARCH='"armv8.5-a"' -DKASAN_SHADOW_SCALE_SHIFT= -fno-delete-null-pointer-checks -O2 -fno-allow-store-data-races -fstack-protector-strong -fno-omit-frame-pointer -fno-optimize-sibling-calls -ftrivial-auto-var-init=zero -fno-stack-clash-protection -fpatchable-function-entry=4,2 -fmin-function-alignment=8 -fstrict-flex-arrays=3 -fno-strict-overflow -fno-stack-check -fconserve-stack -fno-builtin-wcslen -fno-builtin-wcslen -Wall -Wextra -Wundef -Werror=implicit-function-declaration -Werror=implicit-int -Werror=return-type -Werror=strict-prototypes -Wno-format-security -Wno-trigraphs -Wno-frame-address -Wno-address-of-packed-member -Wmissing-declarations -Wmissing-prototypes -Wframe-larger-than=2048 -Wno-main -Wno-dangling-pointer -Wvla -Wno-pointer-sign -Wcast-function-type -Wno-array-bounds -Wno-stringop-overflow -Wno-alloc-size-larger-than -Wimplicit-fallthrough=5 -Werror=date-time -Werror=incompatible-pointer-types -Werror=designated-init -Wenum-conversion -Wunused -Wno-unused-but-set-variable -Wno-unused-const-variable -Wno-packed-not-aligned -Wno-format-overflow -Wno-format-truncation -Wno-stringop-truncation -Wno-override-init -Wno-missing-field-initializers -Wno-type-limits -Wno-shift-negative-value -Wno-maybe-uninitialized -Wno-sign-compare -Wno-unused-parameter -g -mstack-protector-guard=sysreg -mstack-protector-guard-reg=sp_el0 -mstack-protector-guard-offset=1680 -Wall -Wextra -Werror -fno-omit-frame-pointer  -DMODULE  -DKBUILD_BASENAME='"epd8951hat_spi"' -DKBUILD_MODNAME='"epd8951hat"' -D__KBUILD_MODNAME=kmod_epd8951hat -c -o /home/robog/Documents/Code/epd8951hat/epd8951hat_spi.o /home/robog/Documents/Code/epd8951hat/epd8951hat_spi.c  
+savedcmd_/home/robog/Documents/Code/epd8951hat/epd8951hat_drv.o := gcc -Wp,-MMD,/home/robog/Documents/Code/epd8951hat/.epd8951hat_drv.o.d -nostdinc -I./arch/arm64/include -I./arch/arm64/include/generated  -I./include -I./arch/arm64/include/uapi -I./arch/arm64/include/generated/uapi -I./include/uapi -I./include/generated/uapi -include ./include/linux/compiler-version.h -include ./include/linux/kconfig.h -include ./include/linux/compiler_types.h -D__KERNEL__ -mlittle-endian -DCC_USING_PATCHABLE_FUNCTION_ENTRY -DKASAN_SHADOW_SCALE_SHIFT= -fmacro-prefix-map=./= -std=gnu11 -fshort-wchar -funsigned-char -fno-common -fno-PIE -fno-strict-aliasing -mgeneral-regs-only -DCONFIG_CC_HAS_K_CONSTRAINT=1 -Wno-psabi -mabi=lp64 -fno-asynchronous-unwind-tables -fno-unwind-tables -mbranch-protection=pac-ret -Wa,-march=armv8.5-a -DARM64_ASM_ARCH='"armv8.5-a"' -DKASAN_SHADOW_SCALE_SHIFT= -fno-delete-null-pointer-checks -O2 -fno-allow-store-data-races -fstack-protector-strong -fno-omit-frame-pointer -fno-optimize-sibling-calls -ftrivial-auto-var-init=zero -fno-stack-clash-protection -fpatchable-function-entry=4,2 -fmin-function-alignment=8 -fstrict-flex-arrays=3 -fno-strict-overflow -fno-stack-check -fconserve-stack -fno-builtin-wcslen -fno-builtin-wcslen -Wall -Wextra -Wundef -Werror=implicit-function-declaration -Werror=implicit-int -Werror=return-type -Werror=strict-prototypes -Wno-format-security -Wno-trigraphs -Wno-frame-address -Wno-address-of-packed-member -Wmissing-declarations -Wmissing-prototypes -Wframe-larger-than=2048 -Wno-main -Wno-dangling-pointer -Wvla -Wno-pointer-sign -Wcast-function-type -Wno-array-bounds -Wno-stringop-overflow -Wno-alloc-size-larger-than -Wimplicit-fallthrough=5 -Werror=date-time -Werror=incompatible-pointer-types -Werror=designated-init -Wenum-conversion -Wunused -Wno-unused-but-set-variable -Wno-unused-const-variable -Wno-packed-not-aligned -Wno-format-overflow -Wno-format-truncation -Wno-stringop-truncation -Wno-override-init -Wno-missing-field-initializers -Wno-type-limits -Wno-shift-negative-value -Wno-maybe-uninitialized -Wno-sign-compare -Wno-unused-parameter -g -mstack-protector-guard=sysreg -mstack-protector-guard-reg=sp_el0 -mstack-protector-guard-offset=1680 -Wall -Wextra -Werror -fno-omit-frame-pointer  -DMODULE  -DKBUILD_BASENAME='"epd8951hat_drv"' -DKBUILD_MODNAME='"epd8951hat"' -D__KBUILD_MODNAME=kmod_epd8951hat -c -o /home/robog/Documents/Code/epd8951hat/epd8951hat_drv.o /home/robog/Documents/Code/epd8951hat/epd8951hat_drv.c  
 
-source_/home/robog/Documents/Code/epd8951hat/epd8951hat_spi.o := /home/robog/Documents/Code/epd8951hat/epd8951hat_spi.c
+source_/home/robog/Documents/Code/epd8951hat/epd8951hat_drv.o := /home/robog/Documents/Code/epd8951hat/epd8951hat_drv.c
 
-deps_/home/robog/Documents/Code/epd8951hat/epd8951hat_spi.o := \
+deps_/home/robog/Documents/Code/epd8951hat/epd8951hat_drv.o := \
+    $(wildcard include/config/PM_SLEEP) \
   include/linux/compiler-version.h \
     $(wildcard include/config/CC_VERSION_TEXT) \
   include/linux/kconfig.h \
@@ -32,11 +33,8 @@ deps_/home/robog/Documents/Code/epd8951hat/epd8951hat_spi.o := \
     $(wildcard include/config/ARM64_PTR_AUTH_KERNEL) \
     $(wildcard include/config/ARM64_PTR_AUTH) \
     $(wildcard include/config/BUILTIN_RETURN_ADDRESS_STRIPS_PAC) \
-  arch/arm64/include/uapi/asm/byteorder.h \
-  include/linux/byteorder/little_endian.h \
-  include/uapi/linux/byteorder/little_endian.h \
-  include/linux/stddef.h \
-  include/uapi/linux/stddef.h \
+  include/linux/delay.h \
+  include/linux/math.h \
   include/linux/types.h \
     $(wildcard include/config/HAVE_UID16) \
     $(wildcard include/config/UID16) \
@@ -53,15 +51,10 @@ deps_/home/robog/Documents/Code/epd8951hat/epd8951hat_spi.o := \
   include/asm-generic/bitsperlong.h \
   include/uapi/asm-generic/bitsperlong.h \
   include/uapi/linux/posix_types.h \
+  include/linux/stddef.h \
+  include/uapi/linux/stddef.h \
   arch/arm64/include/uapi/asm/posix_types.h \
   include/uapi/asm-generic/posix_types.h \
-  include/linux/swab.h \
-  include/uapi/linux/swab.h \
-  arch/arm64/include/generated/uapi/asm/swab.h \
-  include/uapi/asm-generic/swab.h \
-  include/linux/byteorder/generic.h \
-  include/linux/delay.h \
-  include/linux/math.h \
   arch/arm64/include/generated/asm/div64.h \
   include/asm-generic/div64.h \
   include/linux/compiler.h \
@@ -260,6 +253,14 @@ deps_/home/robog/Documents/Code/epd8951hat/epd8951hat_spi.o := \
   include/asm-generic/bitops/non-atomic.h \
   include/asm-generic/bitops/non-instrumented-non-atomic.h \
   include/asm-generic/bitops/le.h \
+  arch/arm64/include/uapi/asm/byteorder.h \
+  include/linux/byteorder/little_endian.h \
+  include/uapi/linux/byteorder/little_endian.h \
+  include/linux/swab.h \
+  include/uapi/linux/swab.h \
+  arch/arm64/include/generated/uapi/asm/swab.h \
+  include/uapi/asm-generic/swab.h \
+  include/linux/byteorder/generic.h \
   include/asm-generic/bitops/ext2-atomic-setbit.h \
   include/linux/kasan-enabled.h \
     $(wildcard include/config/KASAN) \
@@ -623,7 +624,6 @@ deps_/home/robog/Documents/Code/epd8951hat/epd8951hat_spi.o := \
     $(wildcard include/config/DMA_OPS_BYPASS) \
     $(wildcard include/config/DMA_NEED_SYNC) \
     $(wildcard include/config/IOMMU_DMA) \
-    $(wildcard include/config/PM_SLEEP) \
     $(wildcard include/config/OF) \
     $(wildcard include/config/DEVTMPFS) \
   include/linux/dev_printk.h \
@@ -1018,6 +1018,114 @@ deps_/home/robog/Documents/Code/epd8951hat/epd8951hat_spi.o := \
   include/linux/gpio/consumer.h \
     $(wildcard include/config/GPIOLIB) \
     $(wildcard include/config/GPIO_SYSFS) \
+  include/linux/gpio.h \
+  include/linux/iosys-map.h \
+  include/linux/io.h \
+    $(wildcard include/config/HAS_IOPORT_MAP) \
+    $(wildcard include/config/PCI) \
+  arch/arm64/include/asm/io.h \
+  include/linux/pgtable.h \
+    $(wildcard include/config/HIGHPTE) \
+    $(wildcard include/config/ARCH_HAS_NONLEAF_PMD_YOUNG) \
+    $(wildcard include/config/ARCH_HAS_HW_PTE_YOUNG) \
+    $(wildcard include/config/GUP_GET_PXX_LOW_HIGH) \
+    $(wildcard include/config/ARCH_WANT_PMD_MKWRITE) \
+    $(wildcard include/config/HAVE_ARCH_TRANSPARENT_HUGEPAGE_PUD) \
+    $(wildcard include/config/HAVE_ARCH_SOFT_DIRTY) \
+    $(wildcard include/config/ARCH_ENABLE_THP_MIGRATION) \
+    $(wildcard include/config/ARCH_HAS_PTE_DEVMAP) \
+    $(wildcard include/config/HAVE_ARCH_HUGE_VMAP) \
+    $(wildcard include/config/X86_ESPFIX64) \
+  arch/arm64/include/asm/pgtable.h \
+    $(wildcard include/config/ARCH_SUPPORTS_PMD_PFNMAP) \
+    $(wildcard include/config/ARCH_SUPPORTS_PUD_PFNMAP) \
+    $(wildcard include/config/PAGE_TABLE_CHECK) \
+    $(wildcard include/config/ARM64_CONTPTE) \
+  arch/arm64/include/asm/proc-fns.h \
+  arch/arm64/include/asm/tlbflush.h \
+  include/linux/mmu_notifier.h \
+  include/linux/mmap_lock.h \
+  include/linux/interval_tree.h \
+  arch/arm64/include/asm/fixmap.h \
+    $(wildcard include/config/ACPI_APEI_GHES) \
+    $(wildcard include/config/ARM_SDE_INTERFACE) \
+  include/asm-generic/fixmap.h \
+  arch/arm64/include/asm/por.h \
+  include/linux/page_table_check.h \
+  include/asm-generic/pgtable_uffd.h \
+  arch/arm64/include/generated/asm/early_ioremap.h \
+  include/asm-generic/early_ioremap.h \
+    $(wildcard include/config/GENERIC_EARLY_IOREMAP) \
+  include/asm-generic/io.h \
+    $(wildcard include/config/GENERIC_IOMAP) \
+    $(wildcard include/config/TRACE_MMIO_ACCESS) \
+    $(wildcard include/config/GENERIC_IOREMAP) \
+  include/asm-generic/pci_iomap.h \
+    $(wildcard include/config/NO_GENERIC_PCI_IOPORT_MAP) \
+    $(wildcard include/config/GENERIC_PCI_IOMAP) \
+  include/linux/logic_pio.h \
+    $(wildcard include/config/INDIRECT_PIO) \
+  include/linux/fwnode.h \
+  include/linux/mm.h \
+    $(wildcard include/config/HAVE_ARCH_MMAP_RND_BITS) \
+    $(wildcard include/config/HAVE_ARCH_MMAP_RND_COMPAT_BITS) \
+    $(wildcard include/config/MEM_SOFT_DIRTY) \
+    $(wildcard include/config/ARCH_USES_HIGH_VMA_FLAGS) \
+    $(wildcard include/config/ARCH_HAS_PKEYS) \
+    $(wildcard include/config/ARCH_PKEY_BITS) \
+    $(wildcard include/config/X86_USER_SHADOW_STACK) \
+    $(wildcard include/config/X86) \
+    $(wildcard include/config/PARISC) \
+    $(wildcard include/config/SPARC64) \
+    $(wildcard include/config/HAVE_ARCH_USERFAULTFD_MINOR) \
+    $(wildcard include/config/PPC32) \
+    $(wildcard include/config/SHMEM) \
+    $(wildcard include/config/MIGRATION) \
+    $(wildcard include/config/ARCH_HAS_GIGANTIC_PAGE) \
+    $(wildcard include/config/ARCH_HAS_PTE_SPECIAL) \
+    $(wildcard include/config/SPLIT_PTE_PTLOCKS) \
+    $(wildcard include/config/DEBUG_VM_RB) \
+    $(wildcard include/config/PAGE_POISONING) \
+    $(wildcard include/config/INIT_ON_ALLOC_DEFAULT_ON) \
+    $(wildcard include/config/INIT_ON_FREE_DEFAULT_ON) \
+    $(wildcard include/config/DEBUG_PAGEALLOC) \
+    $(wildcard include/config/ARCH_WANT_OPTIMIZE_DAX_VMEMMAP) \
+    $(wildcard include/config/HUGETLBFS) \
+    $(wildcard include/config/MAPPING_DIRTY_HELPERS) \
+    $(wildcard include/config/PAGE_POOL) \
+  include/linux/pgalloc_tag.h \
+  include/linux/range.h \
+  include/linux/page_ext.h \
+  include/linux/stacktrace.h \
+    $(wildcard include/config/ARCH_STACKWALK) \
+    $(wildcard include/config/STACKTRACE) \
+    $(wildcard include/config/HAVE_RELIABLE_STACKTRACE) \
+  include/linux/page_ref.h \
+    $(wildcard include/config/DEBUG_PAGE_REF) \
+  include/linux/memremap.h \
+    $(wildcard include/config/DEVICE_PRIVATE) \
+    $(wildcard include/config/PCI_P2PDMA) \
+  include/linux/huge_mm.h \
+    $(wildcard include/config/PGTABLE_HAS_HUGE_LEAVES) \
+  include/linux/vmstat.h \
+    $(wildcard include/config/VM_EVENT_COUNTERS) \
+    $(wildcard include/config/DEBUG_TLBFLUSH) \
+    $(wildcard include/config/PER_VMA_LOCK_STATS) \
+  include/linux/vm_event_item.h \
+    $(wildcard include/config/MEMORY_BALLOON) \
+    $(wildcard include/config/BALLOON_COMPACTION) \
+  include/linux/of.h \
+    $(wildcard include/config/OF_DYNAMIC) \
+    $(wildcard include/config/SPARC) \
+    $(wildcard include/config/OF_PROMTREE) \
+    $(wildcard include/config/OF_KOBJ) \
+    $(wildcard include/config/OF_NUMA) \
+    $(wildcard include/config/OF_OVERLAY) \
+  include/linux/mod_devicetable.h \
+  include/uapi/linux/mei.h \
+  include/uapi/linux/mei_uuid.h \
+  include/linux/property.h \
+  include/linux/of_device.h \
   include/linux/spi/spi.h \
     $(wildcard include/config/SPI_SLAVE) \
     $(wildcard include/config/SPI_MASTER) \
@@ -1025,14 +1133,12 @@ deps_/home/robog/Documents/Code/epd8951hat/epd8951hat_spi.o := \
   include/linux/acpi.h \
     $(wildcard include/config/ACPI_TABLE_LIB) \
     $(wildcard include/config/ACPI_DEBUGGER) \
-    $(wildcard include/config/X86) \
     $(wildcard include/config/LOONGARCH) \
     $(wildcard include/config/RISCV) \
     $(wildcard include/config/ACPI_PROCESSOR_CSTATE) \
     $(wildcard include/config/ACPI_HOTPLUG_CPU) \
     $(wildcard include/config/ACPI_HOTPLUG_IOAPIC) \
     $(wildcard include/config/X86_IO_APIC) \
-    $(wildcard include/config/PCI) \
     $(wildcard include/config/ACPI_WMI) \
     $(wildcard include/config/ACPI_THERMAL_LIB) \
     $(wildcard include/config/ACPI_HMAT) \
@@ -1052,11 +1158,6 @@ deps_/home/robog/Documents/Code/epd8951hat/epd8951hat_spi.o := \
     $(wildcard include/config/ACPI_PCC) \
     $(wildcard include/config/ACPI_FFH) \
   include/linux/resource_ext.h \
-  include/linux/mod_devicetable.h \
-  include/uapi/linux/mei.h \
-  include/uapi/linux/mei_uuid.h \
-  include/linux/property.h \
-  include/linux/fwnode.h \
   include/linux/node.h \
     $(wildcard include/config/HMEM_REPORTING) \
   include/acpi/acpi.h \
@@ -1091,107 +1192,32 @@ deps_/home/robog/Documents/Code/epd8951hat/epd8951hat_spi.o := \
     $(wildcard include/config/SGL_ALLOC) \
     $(wildcard include/config/ARCH_NO_SG_CHAIN) \
     $(wildcard include/config/SG_POOL) \
-  include/linux/mm.h \
-    $(wildcard include/config/HAVE_ARCH_MMAP_RND_BITS) \
-    $(wildcard include/config/HAVE_ARCH_MMAP_RND_COMPAT_BITS) \
-    $(wildcard include/config/MEM_SOFT_DIRTY) \
-    $(wildcard include/config/ARCH_USES_HIGH_VMA_FLAGS) \
-    $(wildcard include/config/ARCH_HAS_PKEYS) \
-    $(wildcard include/config/ARCH_PKEY_BITS) \
-    $(wildcard include/config/X86_USER_SHADOW_STACK) \
-    $(wildcard include/config/PARISC) \
-    $(wildcard include/config/SPARC64) \
-    $(wildcard include/config/HAVE_ARCH_USERFAULTFD_MINOR) \
-    $(wildcard include/config/PPC32) \
-    $(wildcard include/config/SHMEM) \
-    $(wildcard include/config/MIGRATION) \
-    $(wildcard include/config/ARCH_HAS_GIGANTIC_PAGE) \
-    $(wildcard include/config/ARCH_HAS_PTE_SPECIAL) \
-    $(wildcard include/config/ARCH_SUPPORTS_PMD_PFNMAP) \
-    $(wildcard include/config/ARCH_SUPPORTS_PUD_PFNMAP) \
-    $(wildcard include/config/ARCH_HAS_PTE_DEVMAP) \
-    $(wildcard include/config/SPLIT_PTE_PTLOCKS) \
-    $(wildcard include/config/HIGHPTE) \
-    $(wildcard include/config/DEBUG_VM_RB) \
-    $(wildcard include/config/PAGE_POISONING) \
-    $(wildcard include/config/INIT_ON_ALLOC_DEFAULT_ON) \
-    $(wildcard include/config/INIT_ON_FREE_DEFAULT_ON) \
-    $(wildcard include/config/DEBUG_PAGEALLOC) \
-    $(wildcard include/config/ARCH_WANT_OPTIMIZE_DAX_VMEMMAP) \
-    $(wildcard include/config/HUGETLBFS) \
-    $(wildcard include/config/MAPPING_DIRTY_HELPERS) \
-    $(wildcard include/config/PAGE_POOL) \
-  include/linux/pgalloc_tag.h \
-  include/linux/mmap_lock.h \
-  include/linux/range.h \
-  include/linux/page_ext.h \
-  include/linux/stacktrace.h \
-    $(wildcard include/config/ARCH_STACKWALK) \
-    $(wildcard include/config/STACKTRACE) \
-    $(wildcard include/config/HAVE_RELIABLE_STACKTRACE) \
-  include/linux/page_ref.h \
-    $(wildcard include/config/DEBUG_PAGE_REF) \
-  include/linux/pgtable.h \
-    $(wildcard include/config/ARCH_HAS_NONLEAF_PMD_YOUNG) \
-    $(wildcard include/config/ARCH_HAS_HW_PTE_YOUNG) \
-    $(wildcard include/config/GUP_GET_PXX_LOW_HIGH) \
-    $(wildcard include/config/ARCH_WANT_PMD_MKWRITE) \
-    $(wildcard include/config/HAVE_ARCH_TRANSPARENT_HUGEPAGE_PUD) \
-    $(wildcard include/config/HAVE_ARCH_SOFT_DIRTY) \
-    $(wildcard include/config/ARCH_ENABLE_THP_MIGRATION) \
-    $(wildcard include/config/HAVE_ARCH_HUGE_VMAP) \
-    $(wildcard include/config/X86_ESPFIX64) \
-  arch/arm64/include/asm/pgtable.h \
-    $(wildcard include/config/PAGE_TABLE_CHECK) \
-    $(wildcard include/config/ARM64_CONTPTE) \
-  arch/arm64/include/asm/proc-fns.h \
-  arch/arm64/include/asm/tlbflush.h \
-  include/linux/mmu_notifier.h \
-  include/linux/interval_tree.h \
-  arch/arm64/include/asm/fixmap.h \
-    $(wildcard include/config/ACPI_APEI_GHES) \
-    $(wildcard include/config/ARM_SDE_INTERFACE) \
-  include/asm-generic/fixmap.h \
-  arch/arm64/include/asm/por.h \
-  include/linux/page_table_check.h \
-  include/asm-generic/pgtable_uffd.h \
-  include/linux/memremap.h \
-    $(wildcard include/config/DEVICE_PRIVATE) \
-    $(wildcard include/config/PCI_P2PDMA) \
-  include/linux/huge_mm.h \
-    $(wildcard include/config/PGTABLE_HAS_HUGE_LEAVES) \
-  include/linux/vmstat.h \
-    $(wildcard include/config/VM_EVENT_COUNTERS) \
-    $(wildcard include/config/DEBUG_TLBFLUSH) \
-    $(wildcard include/config/PER_VMA_LOCK_STATS) \
-  include/linux/vm_event_item.h \
-    $(wildcard include/config/MEMORY_BALLOON) \
-    $(wildcard include/config/BALLOON_COMPACTION) \
-  arch/arm64/include/asm/io.h \
-  arch/arm64/include/generated/asm/early_ioremap.h \
-  include/asm-generic/early_ioremap.h \
-    $(wildcard include/config/GENERIC_EARLY_IOREMAP) \
-  include/asm-generic/io.h \
-    $(wildcard include/config/GENERIC_IOMAP) \
-    $(wildcard include/config/TRACE_MMIO_ACCESS) \
-    $(wildcard include/config/GENERIC_IOREMAP) \
-    $(wildcard include/config/HAS_IOPORT_MAP) \
-  include/asm-generic/pci_iomap.h \
-    $(wildcard include/config/NO_GENERIC_PCI_IOPORT_MAP) \
-    $(wildcard include/config/GENERIC_PCI_IOMAP) \
-  include/linux/logic_pio.h \
-    $(wildcard include/config/INDIRECT_PIO) \
   include/linux/u64_stats_sync.h \
   arch/arm64/include/generated/asm/local64.h \
   include/asm-generic/local64.h \
   arch/arm64/include/generated/asm/local.h \
   include/asm-generic/local.h \
   include/uapi/linux/spi/spi.h \
-  /home/robog/Documents/Code/epd8951hat/epd8951hat.h \
-  include/drm/drm_connector.h \
-  include/linux/hdmi.h \
+  include/linux/vmalloc.h \
+    $(wildcard include/config/HAVE_ARCH_HUGE_VMALLOC) \
+  arch/arm64/include/asm/vmalloc.h \
+    $(wildcard include/config/PTDUMP_DEBUGFS) \
+  include/drm/drm_atomic_helper.h \
+  include/drm/drm_crtc.h \
+  include/drm/drm_modeset_lock.h \
+  include/linux/stackdepot.h \
+    $(wildcard include/config/STACKDEPOT) \
+    $(wildcard include/config/STACKDEPOT_MAX_FRAMES) \
+    $(wildcard include/config/STACKDEPOT_ALWAYS_INIT) \
+  include/linux/ww_mutex.h \
+    $(wildcard include/config/DEBUG_RT_MUTEXES) \
+    $(wildcard include/config/DEBUG_WW_MUTEX_SLOWPATH) \
+  include/linux/rtmutex.h \
   include/drm/drm_mode_object.h \
   include/drm/drm_lease.h \
+  include/drm/drm_modes.h \
+  include/linux/hdmi.h \
+  include/drm/drm_connector.h \
   include/drm/drm_util.h \
     $(wildcard include/config/DRM_EXPORT_FOR_TESTS) \
   include/linux/interrupt.h \
@@ -1227,7 +1253,6 @@ deps_/home/robog/Documents/Code/epd8951hat/epd8951hat_spi.o := \
     $(wildcard include/config/GENERIC_IRQ_CHIP) \
     $(wildcard include/config/GENERIC_IRQ_MULTI_HANDLER) \
   include/linux/irqhandler.h \
-  include/linux/io.h \
   arch/arm64/include/generated/asm/irq_regs.h \
   include/asm-generic/irq_regs.h \
   include/linux/irqdesc.h \
@@ -1327,29 +1352,54 @@ deps_/home/robog/Documents/Code/epd8951hat/epd8951hat_spi.o := \
   include/uapi/drm/drm.h \
   include/drm/drm_device.h \
   include/drm/drm_mode_config.h \
-  include/drm/drm_modeset_lock.h \
-  include/linux/stackdepot.h \
-    $(wildcard include/config/STACKDEPOT) \
-    $(wildcard include/config/STACKDEPOT_MAX_FRAMES) \
-    $(wildcard include/config/STACKDEPOT_ALWAYS_INIT) \
-  include/linux/ww_mutex.h \
-    $(wildcard include/config/DEBUG_RT_MUTEXES) \
-    $(wildcard include/config/DEBUG_WW_MUTEX_SLOWPATH) \
-  include/linux/rtmutex.h \
-  include/drm/drm_framebuffer.h \
-  include/drm/drm_fourcc.h \
-  include/uapi/drm/drm_fourcc.h \
-  include/drm/drm_modes.h \
-  include/drm/drm_rect.h \
-  include/drm/drm_simple_kms_helper.h \
-  include/drm/drm_crtc.h \
   include/drm/drm_plane.h \
   include/linux/kmsg_dump.h \
   include/drm/drm_color_mgmt.h \
+  include/drm/drm_rect.h \
   include/drm/drm_debugfs_crc.h \
     $(wildcard include/config/DEBUG_FS) \
+  include/drm/drm_modeset_helper_vtables.h \
   include/drm/drm_encoder.h \
+  include/drm/drm_modeset_helper.h \
+  include/drm/drm_atomic_state_helper.h \
+  include/drm/drm_damage_helper.h \
+  include/drm/drm_drv.h \
+  include/video/nomodeset.h \
+  include/drm/drm_fbdev_shmem.h \
+    $(wildcard include/config/DRM_FBDEV_EMULATION) \
+  include/drm/drm_format_helper.h \
+  include/drm/drm_fourcc.h \
+  include/uapi/drm/drm_fourcc.h \
+  include/drm/drm_framebuffer.h \
+  include/drm/drm_gem.h \
+  include/linux/dma-buf.h \
+    $(wildcard include/config/DMABUF_SYSFS_STATS) \
+  include/linux/file.h \
+  include/linux/dma-mapping.h \
+    $(wildcard include/config/DMA_API_DEBUG) \
+    $(wildcard include/config/HAS_DMA) \
+    $(wildcard include/config/NEED_DMA_MAP_STATE) \
+  include/linux/dma-direction.h \
+  include/linux/mem_encrypt.h \
+    $(wildcard include/config/ARCH_HAS_MEM_ENCRYPT) \
+  arch/arm64/include/asm/mem_encrypt.h \
+  include/linux/dma-fence.h \
+  include/linux/dma-resv.h \
+  include/drm/drm_vma_manager.h \
+  include/drm/drm_mm.h \
+    $(wildcard include/config/DRM_DEBUG_MM) \
+  include/drm/drm_print.h \
+    $(wildcard include/config/DRM_USE_DYNAMIC_DEBUG) \
+  include/drm/drm_gem_framebuffer_helper.h \
+  include/drm/drm_gem_shmem_helper.h \
+  include/drm/drm_file.h \
+  include/drm/drm_prime.h \
+  include/drm/drm_ioctl.h \
+  include/drm/drm_managed.h \
+  include/drm/drm_probe_helper.h \
+  include/drm/drm_simple_kms_helper.h \
+  /home/robog/Documents/Code/epd8951hat/epd8951hat.h \
 
-/home/robog/Documents/Code/epd8951hat/epd8951hat_spi.o: $(deps_/home/robog/Documents/Code/epd8951hat/epd8951hat_spi.o)
+/home/robog/Documents/Code/epd8951hat/epd8951hat_drv.o: $(deps_/home/robog/Documents/Code/epd8951hat/epd8951hat_drv.o)
 
-$(deps_/home/robog/Documents/Code/epd8951hat/epd8951hat_spi.o):
+$(deps_/home/robog/Documents/Code/epd8951hat/epd8951hat_drv.o):

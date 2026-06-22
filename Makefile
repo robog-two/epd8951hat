@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0
-# Kernel module Makefile for the IT8951 e-Paper HAT framebuffer driver.
+# Kernel module Makefile for the IT8951 e-Paper HAT DRM driver.
 # Target: Raspberry Pi running Linux 6.x.
 #
 # Usage:
@@ -15,9 +15,8 @@
 obj-m := epd8951hat.o
 
 epd8951hat-objs := \
-	epd8951hat_main.o    \
+	epd8951hat_drv.o     \
 	epd8951hat_spi.o     \
-	epd8951hat_dirty.o   \
 	epd8951hat_refresh.o
 
 KDIR ?= /lib/modules/$(shell uname -r)/build
