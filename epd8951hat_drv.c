@@ -7,10 +7,10 @@
  *
  * Architecture:
  *   Userspace commits XRGB8888 framebuffers via the atomic KMS interface.
- *   The simple-pipe .update() callback merges the damage rectangle and
- *   schedules a workqueue item.  The worker converts XRGB8888→1bpp via
- *   drm_fb_xrgb8888_to_mono() into epd->mono_buf, then calls epd_do_refresh()
- *   which handles A2/GC16/INIT waveform selection and the IT8951 SPI upload.
+ *   The simple-pipe .update() callback stores the latest framebuffer and
+ *   schedules a workqueue item.  The worker applies Floyd-Steinberg dithering
+ *   (XRGB8888 → 1bpp) into epd->mono_buf, then calls epd_do_refresh() which
+ *   loads the full panel and fires an A2 waveform via the IT8951 SPI layer.
  *
  *   drm_fbdev_shmem_setup() provides /dev/fb0 + fbcon emulation at no cost.
  *
@@ -40,10 +40,8 @@
 
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_connector.h>
-#include <drm/drm_damage_helper.h>
 #include <drm/drm_drv.h>
 #include <drm/drm_fbdev_shmem.h>
-#include <drm/drm_format_helper.h>
 #include <drm/drm_fourcc.h>
 #include <drm/drm_framebuffer.h>
 #include <drm/drm_gem.h>
@@ -54,10 +52,10 @@
 #include <drm/drm_modeset_helper_vtables.h>
 #include <drm/drm_modes.h>
 #include <drm/drm_probe_helper.h>
-#include <drm/drm_rect.h>
 #include <drm/drm_simple_kms_helper.h>
 
 #include "epd8951hat.h"
+#include "epd8951hat_pipeline.h"
 
 /* =========================================================================
  * Module parameters
@@ -159,10 +157,26 @@ static const struct drm_connector_funcs epd_connector_funcs = {
 };
 
 /* =========================================================================
+ * Floyd-Steinberg dithering: XRGB8888 → 1bpp mono_buf
+ *
+ * Processes the full panel using two error-accumulation rows.  Errors are
+ * stored pre-scaled by 16 and divided on read, keeping all arithmetic in
+ * integer.  DRM_FORMAT_XRGB8888 memory layout: byte[0]=B, [1]=G, [2]=R.
+ * Output convention: bit=1 → black (matches MONO01 / IT8951 BGVR 0x00F0).
+ * ========================================================================= */
+
+static void epd_dither_xrgb8888(struct epd_device *epd,
+				  const void *src, u32 src_pitch)
+{
+	epd_dither_xrgb8888_fn(epd->panel_w, epd->panel_h, epd->fb_stride,
+				src, src_pitch, epd->mono_buf);
+}
+
+/* =========================================================================
  * Refresh worker
  *
- * Runs in process context; handles the actual XRGB8888→1bpp conversion
- * and slow SPI upload off the atomic commit thread.
+ * Dithers the pending XRGB8888 framebuffer to mono_buf, then hands off to
+ * epd_do_refresh() for the SPI upload and A2 waveform trigger.
  * ========================================================================= */
 
 static void epd_refresh_work_fn(struct work_struct *work)
@@ -170,26 +184,15 @@ static void epd_refresh_work_fn(struct work_struct *work)
 	struct epd_device *epd =
 		container_of(work, struct epd_device, refresh_work);
 	struct drm_framebuffer *fb;
-	struct drm_rect rect;
-	struct drm_rect deferred;
-	bool has_deferred;
 	struct drm_gem_object *gem;
 	struct drm_gem_shmem_object *shmem;
 	struct iosys_map src_map;
-	struct iosys_map dst_map;
-	struct drm_format_conv_state conv_state = DRM_FORMAT_CONV_STATE_INIT;
-	struct drm_rect full_clip;
-	unsigned int dst_pitch;
 	unsigned long flags;
 	int ret;
 
 	spin_lock_irqsave(&epd->pending_lock, flags);
-	fb            = epd->pending_fb;
-	rect          = epd->pending_rect;
-	has_deferred  = epd->has_deferred;
-	deferred      = epd->deferred_rect;
-	epd->pending_fb   = NULL;
-	epd->has_deferred = false;
+	fb              = epd->pending_fb;
+	epd->pending_fb = NULL;
 	spin_unlock_irqrestore(&epd->pending_lock, flags);
 
 	if (!fb)
@@ -200,47 +203,22 @@ static void epd_refresh_work_fn(struct work_struct *work)
 		return;
 	}
 
-	/*
-	 * Convert the entire XRGB8888 framebuffer to 1bpp in mono_buf.
-	 * We convert the full panel rather than just the damage clip so that
-	 * epd_region_changed()'s shadow comparison operates on consistent data
-	 * and epd_load_image_1bpp() can safely read the full panel if the
-	 * refresh path decides on a full-screen update.
-	 */
-	gem  = drm_gem_fb_get_obj(fb, 0);
+	gem   = drm_gem_fb_get_obj(fb, 0);
 	shmem = to_drm_gem_shmem_obj(gem);
 
 	ret = drm_gem_shmem_vmap(shmem, &src_map);
 	if (ret) {
 		drm_err(&epd->drm, "vmap failed: %d\n", ret);
-		goto out_put_fb;
+		drm_framebuffer_put(fb);
+		return;
 	}
 
-	full_clip.x1 = 0;
-	full_clip.y1 = 0;
-	full_clip.x2 = epd->panel_w;
-	full_clip.y2 = epd->panel_h;
-
-	dst_pitch = epd->fb_stride;
-	iosys_map_set_vaddr(&dst_map, epd->mono_buf);
-	drm_fb_xrgb8888_to_mono(&dst_map, &dst_pitch, &src_map, fb,
-				 &full_clip, &conv_state);
+	epd_dither_xrgb8888(epd, src_map.vaddr, fb->pitches[0]);
 
 	drm_gem_shmem_vunmap(shmem, &src_map);
-	drm_format_conv_state_release(&conv_state);
-
 	drm_framebuffer_put(fb);
 
-	/* Process the latest damage first ("prioritize now") */
-	epd_do_refresh(epd, &rect);
-	/* Then clean up any areas displaced by the latest update */
-	if (has_deferred)
-		epd_do_refresh(epd, &deferred);
-	return;
-
-out_put_fb:
-	drm_format_conv_state_release(&conv_state);
-	drm_framebuffer_put(fb);
+	epd_do_refresh(epd);
 }
 
 /* =========================================================================
@@ -261,35 +239,22 @@ static void epd_pipe_enable(struct drm_simple_display_pipe *pipe,
 			     struct drm_plane_state *plane_state)
 {
 	struct epd_device *epd = to_epd(pipe->crtc.dev);
+	unsigned long flags;
 
 	if (epd->suspended) {
 		epd->suspended = false;
 		epd_hw_wakeup(epd);
-		/* Clear any ghosting left from before the sleep */
 		epd_full_clear(epd);
 	}
 
 	epd->pipe_enabled = true;
 
-	/*
-	 * If a framebuffer is already attached (e.g. fbdev emulation wrote to
-	 * it before the first modeset), schedule an immediate full-panel draw
-	 * so the display shows current content on enable.
-	 */
 	if (plane_state->fb) {
-		struct drm_rect full = {
-			.x1 = 0, .y1 = 0,
-			.x2 = epd->panel_w, .y2 = epd->panel_h,
-		};
-		unsigned long flags;
-
 		spin_lock_irqsave(&epd->pending_lock, flags);
 		if (epd->pending_fb)
 			drm_framebuffer_put(epd->pending_fb);
 		drm_framebuffer_get(plane_state->fb);
-		epd->pending_fb   = plane_state->fb;
-		epd->pending_rect = full;
-		epd->has_deferred = false;
+		epd->pending_fb = plane_state->fb;
 		spin_unlock_irqrestore(&epd->pending_lock, flags);
 
 		schedule_work(&epd->refresh_work);
@@ -310,8 +275,7 @@ static void epd_pipe_disable(struct drm_simple_display_pipe *pipe)
 
 		spin_lock_irqsave(&epd->pending_lock, flags);
 		fb = epd->pending_fb;
-		epd->pending_fb   = NULL;
-		epd->has_deferred = false;
+		epd->pending_fb = NULL;
 		spin_unlock_irqrestore(&epd->pending_lock, flags);
 
 		if (fb)
@@ -327,37 +291,17 @@ static void epd_pipe_update(struct drm_simple_display_pipe *pipe,
 {
 	struct epd_device *epd = to_epd(pipe->crtc.dev);
 	struct drm_plane_state *state = pipe->plane.state;
-	struct drm_rect rect;
 	unsigned long flags;
 
-	if (!pipe->crtc.state->active)
+	if (!pipe->crtc.state->active || !state->fb)
 		return;
 
-	if (!drm_atomic_helper_damage_merged(old_state, state, &rect))
-		return;
-
+	/* Latest frame wins; drop any pending frame we haven't rendered yet. */
 	spin_lock_irqsave(&epd->pending_lock, flags);
-	if (epd->pending_fb) {
-		/*
-		 * Latest wins: the old pending rect is displaced by the newer
-		 * damage.  Accumulate it into deferred_rect so the worker can
-		 * clean up the stale screen region after finishing the latest
-		 * update (ghost-cleanup pass).
-		 */
-		if (epd->has_deferred) {
-			epd->deferred_rect.x1 = min(epd->deferred_rect.x1, epd->pending_rect.x1);
-			epd->deferred_rect.y1 = min(epd->deferred_rect.y1, epd->pending_rect.y1);
-			epd->deferred_rect.x2 = max(epd->deferred_rect.x2, epd->pending_rect.x2);
-			epd->deferred_rect.y2 = max(epd->deferred_rect.y2, epd->pending_rect.y2);
-		} else {
-			epd->deferred_rect = epd->pending_rect;
-			epd->has_deferred  = true;
-		}
+	if (epd->pending_fb)
 		drm_framebuffer_put(epd->pending_fb);
-	}
 	drm_framebuffer_get(state->fb);
-	epd->pending_fb   = state->fb;
-	epd->pending_rect = rect;
+	epd->pending_fb = state->fb;
 	spin_unlock_irqrestore(&epd->pending_lock, flags);
 
 	schedule_work(&epd->refresh_work);
@@ -414,7 +358,6 @@ static int epd_probe(struct spi_device *spi)
 
 	spin_lock_init(&epd->pending_lock);
 	mutex_init(&epd->refresh_mutex);
-	atomic_set(&epd->a2_count, 0);
 	INIT_WORK(&epd->refresh_work, epd_refresh_work_fn);
 
 	/* Apply module params */
@@ -471,7 +414,7 @@ static int epd_probe(struct spi_device *spi)
 			dev_warn(&spi->dev, "enhance_driving failed (non-fatal): %d\n", ret);
 	}
 
-	/* ---- Allocate 1bpp scratch and shadow buffers -------------------- */
+	/* ---- Allocate pipeline stage 2/3 buffers (1bpp, full panel) ------ */
 	epd->fb_stride = DIV_ROUND_UP((u32)epd->panel_w, 8u);
 	epd->fb_size   = (size_t)epd->fb_stride * epd->panel_h;
 
@@ -481,8 +424,8 @@ static int epd_probe(struct spi_device *spi)
 		goto err_hw_sleep;
 	}
 
-	epd->screen_shadow = kzalloc(epd->fb_size, GFP_KERNEL);
-	if (!epd->screen_shadow) {
+	epd->flip_buf = vzalloc(epd->fb_size);
+	if (!epd->flip_buf) {
 		ret = -ENOMEM;
 		goto err_free_mono;
 	}
@@ -490,7 +433,7 @@ static int epd_probe(struct spi_device *spi)
 	/* ---- DRM mode config --------------------------------------------- */
 	ret = drmm_mode_config_init(&epd->drm);
 	if (ret)
-		goto err_free_shadow;
+		goto err_free_flip;
 
 	epd->drm.mode_config.min_width  = 0;
 	epd->drm.mode_config.max_width  = EPD_MAX_WIDTH;
@@ -522,7 +465,7 @@ static int epd_probe(struct spi_device *spi)
 				   DRM_MODE_CONNECTOR_SPI, NULL);
 	if (ret) {
 		dev_err(&spi->dev, "connector init failed: %d\n", ret);
-		goto err_free_shadow;
+		goto err_free_flip;
 	}
 	drm_connector_helper_add(&epd->connector, &epd_connector_helper_funcs);
 
@@ -533,7 +476,7 @@ static int epd_probe(struct spi_device *spi)
 					   NULL, &epd->connector);
 	if (ret) {
 		dev_err(&spi->dev, "pipe init failed: %d\n", ret);
-		goto err_free_shadow;
+		goto err_free_flip;
 	}
 
 	drm_mode_config_reset(&epd->drm);
@@ -542,7 +485,7 @@ static int epd_probe(struct spi_device *spi)
 	ret = drm_dev_register(&epd->drm, 0);
 	if (ret) {
 		dev_err(&spi->dev, "drm_dev_register failed: %d\n", ret);
-		goto err_free_shadow;
+		goto err_free_flip;
 	}
 
 	/* ---- fbdev emulation (provides /dev/fb0 + fbcon for free) -------- */
@@ -559,8 +502,8 @@ static int epd_probe(struct spi_device *spi)
 
 	return 0;
 
-err_free_shadow:
-	kfree(epd->screen_shadow);
+err_free_flip:
+	vfree(epd->flip_buf);
 err_free_mono:
 	vfree(epd->mono_buf);
 err_hw_sleep:
@@ -593,7 +536,7 @@ static void epd_remove(struct spi_device *spi)
 
 	epd_hw_sleep(epd);
 
-	kfree(epd->screen_shadow);
+	vfree(epd->flip_buf);
 	vfree(epd->mono_buf);
 	kfree(epd->spi_buf);
 	mutex_destroy(&epd->refresh_mutex);

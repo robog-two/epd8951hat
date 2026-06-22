@@ -13,7 +13,6 @@
 #ifndef EPD8951HAT_H
 #define EPD8951HAT_H
 
-#include <linux/atomic.h>
 #include <linux/gpio/consumer.h>
 #include <linux/mutex.h>
 #include <linux/spinlock.h>
@@ -25,8 +24,9 @@
 #include <drm/drm_device.h>
 #include <drm/drm_framebuffer.h>
 #include <drm/drm_modes.h>
-#include <drm/drm_rect.h>
 #include <drm/drm_simple_kms_helper.h>
+
+#include "epd8951hat_pipeline.h"
 
 /* =========================================================================
  * Display geometry limits
@@ -89,8 +89,7 @@
 #define EPD_MODE_DU                 1u
 #define EPD_MODE_GC16               2u
 #define EPD_MODE_GL16               3u
-#define EPD_MODE_A2_M641            4u
-#define EPD_MODE_A2_M841            6u
+/* EPD_MODE_A2_M641 and EPD_MODE_A2_M841 are defined in epd8951hat_pipeline.h */
 
 /* =========================================================================
  * Pixel format codes used in LD_IMG args[0]
@@ -129,12 +128,7 @@
 
 #define EPD_NOMINAL_VREFRESH_HZ     30u   /* nominal vrefresh reported to compositor; must be >1
                                              so niri's FrameClock (which asserts interval < 1s)
-                                             doesn't panic. The driver's workqueue drops frames
-                                             that arrive faster than the SPI bus can flush them. */
-#define EPD_FULL_REFRESH_THRESHOLD  95u   /* percent of panel area → INIT+GC16 */
-#define EPD_MIN_UPDATE_PIXELS       16u   /* skip partial refresh if area < 4×4 */
-#define EPD_A2_GHOSTING_LIMIT       20u   /* A2 refreshes before INIT clear */
-#define EPD_CURSOR_MAX_PIXELS       (32u * 32u)
+                                             doesn't panic. */
 #define EPD_BUSY_TIMEOUT_MS        5000u
 #define EPD_DEFAULT_VCOM           2000u
 
@@ -157,18 +151,6 @@ struct it8951_dev_info {
 	u16 fw_version[8];
 	u16 lut_version[8];
 } __packed;
-
-/* =========================================================================
- * LUT variant
- * ========================================================================= */
-
-enum epd_lut_variant {
-	EPD_LUT_UNKNOWN,
-	EPD_LUT_M641,
-	EPD_LUT_M841,
-	EPD_LUT_M841_TFA2812,
-	EPD_LUT_M841_TFA5210,
-};
 
 /* =========================================================================
  * Main driver context
@@ -200,27 +182,24 @@ struct epd_device {
 	u16  vcom_mv;
 	bool enhance_driving;
 
-	/* ---- 1bpp scratch + shadow ---- */
-	u8   *mono_buf;       /* XRGB8888→mono conversion target (1bpp, full panel) */
-	u8   *screen_shadow;  /* copy of what is currently on the panel */
-	size_t fb_size;       /* bytes (= fb_stride × panel_h) */
-	u32    fb_stride;     /* bytes per row (= ceil(panel_w / 8)) */
+	/* ---- Pipeline stage 2/3 buffers (1bpp, full panel) ---- */
+	u8   *mono_buf;    /* stage 2: F-S dithered, framebuffer space (unflipped) */
+	u8   *flip_buf;    /* stage 3: horizontally mirrored, controller space; also
+	                      tracks previous displayed frame for dirty detection */
+	size_t fb_size;    /* bytes (= fb_stride × panel_h) */
+	u32    fb_stride;  /* bytes per row (= ceil(panel_w / 8)) */
 
 	/* ---- SPI TX scratch buffer (kmalloc DMA-safe) ---- */
 	u8   *spi_buf;
 	size_t spi_buf_size;
 
-	/* ---- Pending damage (set in .update(), consumed in worker) ---- */
+	/* ---- Pending frame (set in .update(), consumed in worker) ---- */
 	struct work_struct      refresh_work;
-	struct drm_framebuffer *pending_fb;     /* held ref, protected by lock */
-	struct drm_rect         pending_rect;   /* latest damage (newest update wins) */
-	struct drm_rect         deferred_rect;  /* older displaced updates, processed after latest */
-	bool                    has_deferred;   /* deferred_rect is valid */
+	struct drm_framebuffer *pending_fb;  /* held ref, protected by lock */
 	spinlock_t              pending_lock;
 
-	/* ---- Refresh serialisation and ghosting counter ---- */
+	/* ---- Refresh serialisation ---- */
 	struct mutex   refresh_mutex;
-	atomic_t       a2_count;
 
 	/* ---- Device state ---- */
 	bool  initialized;
@@ -243,6 +222,12 @@ int  epd_set_vcom(struct epd_device *epd, u16 vcom_mv);
 int  epd_enhance_driving(struct epd_device *epd);
 int  epd_wait_display_ready(struct epd_device *epd);
 
+/*
+ * epd_load_image_1bpp / epd_display_area / epd_display_area_1bpp:
+ * All coordinates are in controller space.  The caller (stage 3 in
+ * epd8951hat_refresh.c) is responsible for any mirror transformation before
+ * calling these functions; no mirroring is applied internally.
+ */
 int  epd_load_image_1bpp(struct epd_device *epd,
 			  const u8 *fb_base, u32 fb_stride,
 			  u16 x, u16 y, u16 w, u16 h);
@@ -250,17 +235,6 @@ int  epd_load_image_1bpp(struct epd_device *epd,
 int  epd_display_area(struct epd_device *epd, u16 x, u16 y, u16 w, u16 h,
 		       u8 mode);
 
-/*
- * epd_display_area_1bpp - trigger a waveform update for 1bpp content.
- *
- * Wraps epd_display_area with the UP1SR 1bpp-expansion enable/disable
- * sequence and waits for the waveform to complete before returning, so
- * UP1SR is always restored to its previous state on exit.
- *
- * Use this (not epd_display_area) for all A2/GC16/DU updates after
- * epd_load_image_1bpp().  Do NOT use for INIT clears (epd_full_clear
- * loads 4bpp white data and calls epd_display_area directly).
- */
 int  epd_display_area_1bpp(struct epd_device *epd, u16 x, u16 y, u16 w, u16 h,
 			    u8 mode);
 
@@ -271,16 +245,10 @@ int  epd_full_clear(struct epd_device *epd);
  * ========================================================================= */
 
 /*
- * Perform a display refresh for the given damage rectangle.
- * Selects A2 / GC16 / INIT based on damage area and ghosting counter.
- * Must be called from process context (may sleep waiting for SPI).
+ * Pipeline stage 3: mirror mono_buf → flip_buf, diff against the previous
+ * frame, then send only the dirty bounding box to the display controller via
+ * an A2 partial refresh.  Must be called from process context (may sleep).
  */
-void epd_do_refresh(struct epd_device *epd, const struct drm_rect *damage);
-
-/* True if the write is small enough to be treated as a cursor update. */
-static inline bool epd_is_cursor_update(int w, int h)
-{
-	return (unsigned int)(w * h) <= EPD_CURSOR_MAX_PIXELS;
-}
+void epd_do_refresh(struct epd_device *epd);
 
 #endif /* EPD8951HAT_H */

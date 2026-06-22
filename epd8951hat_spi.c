@@ -8,7 +8,6 @@
  */
 
 #include <asm/byteorder.h>
-#include <linux/bitrev.h>
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/gpio/consumer.h>
@@ -20,6 +19,7 @@
 #include <linux/types.h>
 
 #include "epd8951hat.h"
+#include "epd8951hat_pipeline.h"
 
 /* =========================================================================
  * Low-level SPI helpers (static)
@@ -275,49 +275,16 @@ static int epd_read_reg(struct epd_device *epd, u16 reg, u16 *val)
  */
 static void epd_detect_lut(struct epd_device *epd)
 {
-	const char *lut = (const char *)epd->dev_info.lut_version;
-	size_t lut_bytes = sizeof(epd->dev_info.lut_version);
+	const char *lut     = (const char *)epd->dev_info.lut_version;
+	size_t      lut_len = sizeof(epd->dev_info.lut_version);
 
-	/*
-	 * Search for substrings.  Use a helper lambda pattern via a local
-	 * function-like macro since C99 lacks closures.
-	 */
-#define LUT_CONTAINS(s) (strnstr(lut, (s), lut_bytes) != NULL)
+	epd->lut_variant = epd_lut_classify(lut, lut_len,
+					     &epd->a2_mode,
+					     &epd->needs_4byte_align);
 
-	if (LUT_CONTAINS("M641")) {
-		epd->lut_variant      = EPD_LUT_M641;
-		epd->a2_mode          = EPD_MODE_A2_M641;
-		epd->needs_4byte_align = true;
-		dev_dbg(&epd->spi->dev, "LUT variant: M641 (A2 mode %u, 4-byte align)\n",
-			epd->a2_mode);
-	} else if (LUT_CONTAINS("M841_TFA2812")) {
-		epd->lut_variant      = EPD_LUT_M841_TFA2812;
-		epd->a2_mode          = EPD_MODE_A2_M841;
-		epd->needs_4byte_align = false;
-		dev_dbg(&epd->spi->dev, "LUT variant: M841_TFA2812 (A2 mode %u)\n",
-			epd->a2_mode);
-	} else if (LUT_CONTAINS("M841_TFA5210")) {
-		epd->lut_variant      = EPD_LUT_M841_TFA5210;
-		epd->a2_mode          = EPD_MODE_A2_M841;
-		epd->needs_4byte_align = false;
-		dev_dbg(&epd->spi->dev, "LUT variant: M841_TFA5210 (A2 mode %u)\n",
-			epd->a2_mode);
-	} else if (LUT_CONTAINS("M841")) {
-		epd->lut_variant      = EPD_LUT_M841;
-		epd->a2_mode          = EPD_MODE_A2_M841;
-		epd->needs_4byte_align = false;
-		dev_dbg(&epd->spi->dev, "LUT variant: M841 (A2 mode %u)\n",
-			epd->a2_mode);
-	} else {
-		epd->lut_variant      = EPD_LUT_UNKNOWN;
-		epd->a2_mode          = EPD_MODE_A2_M841;  /* safe default */
-		epd->needs_4byte_align = false;
-		dev_dbg(&epd->spi->dev,
-			"LUT variant: UNKNOWN, defaulting to A2 mode %u\n",
-			epd->a2_mode);
-	}
-
-#undef LUT_CONTAINS
+	dev_dbg(&epd->spi->dev,
+		"LUT variant: %u (A2 mode %u, 4-byte align: %d)\n",
+		epd->lut_variant, epd->a2_mode, epd->needs_4byte_align);
 }
 
 /* =========================================================================
@@ -589,28 +556,14 @@ int epd_wait_display_ready(struct epd_device *epd)
 /*
  * epd_load_image_1bpp - Load a 1-bpp pixel region into IT8951 DRAM.
  *
- * Uses IT8951's hardware 1bpp packed mode: raw source bytes are sent as-is
- * using the 8BPP SPI container format with Area_X=x/8 and Area_W=w/8.
- * Each transferred "8bpp pixel" byte contains 8 packed 1bpp source pixels.
- * IT8951 expands them to display pixels via the BGVR gray table when the
- * caller subsequently enables UP1SR 1bpp display mode (see epd_display_area_1bpp).
+ * Uses IT8951's hardware 1bpp packed mode: source bytes are sent using the
+ * 8BPP SPI container format with Area_X=x/8 and Area_W=w/8.  Each byte
+ * carries 8 packed 1bpp pixels; IT8951 expands them via BGVR when the caller
+ * subsequently enables UP1SR 1bpp mode (see epd_display_area_1bpp).
  *
- * This transfers w*h/8 bytes instead of the w*h/2 bytes a 4bpp conversion
- * would require — a 4× reduction for full-panel refreshes.
- *
- * Preconditions (enforced by epd_align_region via epd_do_refresh):
- *   - x and w must be multiples of 8 (required by Area_X=x/8, Area_W=w/8).
- *
- * Mirror handling: when mirror_x is set, bytes within each row are reversed
- * and their bits are reversed with bitrev8(), so the image appears horizontally
- * flipped on the controller side while framebuffer coordinates are preserved.
- *
- * Steps:
- *   1. Set LISAR (IT8951 image RAM base address)
- *   2. Send LD_IMG_AREA with 8BPP format and packed-1bpp area coordinates
- *   3. Copy/mirror source rows into spi_buf
- *   4. Bulk-send spi_buf
- *   5. Send LD_IMG_END
+ * Coordinates are in controller space.  Any horizontal mirroring must be
+ * applied by the caller (stage 3 in epd8951hat_refresh.c) before calling here.
+ * x and w must be multiples of 8 (Area_X and Area_W are in units of 8 pixels).
  *
  * Returns 0 on success, negative errno on error.
  */
@@ -619,21 +572,13 @@ int epd_load_image_1bpp(struct epd_device *epd,
 			 u16 x, u16 y, u16 w, u16 h)
 {
 	u16 args[5];
-	u32 base_addr = epd->img_ram_addr;
-	/*
-	 * 1bpp packed: 8 pixels per byte → w/8 bytes per row.
-	 * w is guaranteed a multiple of 8 by the caller's alignment.
-	 * Total bytes must be even for the IT8951's 16-bit SPI protocol.
-	 */
+	u32 base_addr    = epd->img_ram_addr;
 	size_t row_bytes     = w / 8;
 	size_t out_bytes     = row_bytes * (size_t)h;
 	size_t out_bytes_dma = ALIGN(out_bytes, 2);
-	/*
-	 * Mirror: load to the controller x-coordinate that maps to framebuffer
-	 * column x after the panel's physical flip.
-	 */
-	u16 ctrl_x = epd->mirror_x ? (u16)(epd->panel_w - x - w) : x;
-	int ret;
+	u8 *dst;
+	size_t i;
+	int row, ret;
 
 	if (out_bytes_dma > epd->spi_buf_size) {
 		dev_err(&epd->spi->dev,
@@ -642,7 +587,7 @@ int epd_load_image_1bpp(struct epd_device *epd,
 		return -EINVAL;
 	}
 
-	/* 1. Set IT8951 image RAM target address via LISAR registers. */
+	/* 1. Set IT8951 image RAM target address. */
 	ret = epd_write_reg(epd, IT8951_REG_LISAR + 2, (u16)(base_addr >> 16));
 	if (ret)
 		return ret;
@@ -650,7 +595,7 @@ int epd_load_image_1bpp(struct epd_device *epd,
 	if (ret)
 		return ret;
 
-	/* 2. LD_IMG_AREA: 8BPP container, packed-1bpp area coordinates. */
+	/* 2. LD_IMG_AREA: 8BPP container, packed-1bpp area in 8-pixel units. */
 	ret = epd_write_cmd(epd, IT8951_CMD_LD_IMG_AREA);
 	if (ret)
 		return ret;
@@ -658,65 +603,34 @@ int epd_load_image_1bpp(struct epd_device *epd,
 	args[0] = (u16)((IT8951_ENDIAN_BIG << 8) |
 			(IT8951_PIX_FMT_8BPP  << 4) |
 			IT8951_ROTATE_0);
-	args[1] = ctrl_x / 8;   /* controller column in units of 8 pixels */
+	args[1] = x / 8;
 	args[2] = y;
-	args[3] = w / 8;         /* width in units of 8 pixels */
+	args[3] = w / 8;
 	args[4] = h;
 
-	{
-		size_t i;
-
-		for (i = 0; i < ARRAY_SIZE(args); i++) {
-			ret = epd_write_data(epd, args[i]);
-			if (ret)
-				return ret;
-		}
+	for (i = 0; i < ARRAY_SIZE(args); i++) {
+		ret = epd_write_data(epd, args[i]);
+		if (ret)
+			return ret;
 	}
 
-	/*
-	 * 3. Pack the source region into spi_buf.
-	 *
-	 * Non-mirrored: copy row_bytes bytes directly from each source row.
-	 * The source bytes are already in IT8951's expected bit order (MSB = left
-	 * pixel in MONO01, which is also what IT8951 1bpp mode expects).
-	 *
-	 * Mirrored: reverse the byte order within each row AND reverse the bits
-	 * within each byte (bitrev8).  Together these flip the row left-to-right
-	 * so that framebuffer column x+0 ends up at controller column ctrl_x+0
-	 * (i.e. the rightmost framebuffer column maps to the leftmost controller
-	 * column of the mirrored region).
-	 */
-	{
-		u8 *dst = epd->spi_buf;
-		int row;
+	/* 3. Pack source rows into spi_buf. */
+	dst = epd->spi_buf;
+	for (row = 0; row < (int)h; row++) {
+		const u8 *src = fb_base + (size_t)((int)y + row) * fb_stride + x / 8;
 
-		for (row = 0; row < (int)h; row++) {
-			const u8 *src = fb_base +
-					(size_t)((int)y + row) * fb_stride +
-					x / 8;
-
-			if (epd->mirror_x) {
-				int j;
-
-				for (j = 0; j < (int)row_bytes; j++)
-					dst[j] = bitrev8(src[row_bytes - 1 - j]);
-			} else {
-				memcpy(dst, src, row_bytes);
-			}
-			dst += row_bytes;
-		}
-
-		/* Pad to even byte count (white = 0xFF in 1bpp). */
-		if (out_bytes_dma > out_bytes)
-			epd->spi_buf[out_bytes] = 0xFFu;
+		memcpy(dst, src, row_bytes);
+		dst += row_bytes;
 	}
+	if (out_bytes_dma > out_bytes)
+		epd->spi_buf[out_bytes] = 0xFFu;
 
-	/* 4. Bulk-send spi_buf: preamble + all packed 1bpp bytes in one CS frame. */
+	/* 4. Bulk-send: preamble + all packed bytes in one CS frame. */
 	ret = epd_write_data_bulk(epd, epd->spi_buf, out_bytes_dma);
 	if (ret)
 		return ret;
 
-	/* 5. LD_IMG_END */
+	/* 5. LD_IMG_END. */
 	ret = epd_write_cmd(epd, IT8951_CMD_LD_IMG_END);
 	if (ret)
 		dev_err(&epd->spi->dev, "LD_IMG_END failed: %d\n", ret);
@@ -727,15 +641,9 @@ int epd_load_image_1bpp(struct epd_device *epd,
 /*
  * epd_display_area - Send CMD_DPY_AREA to trigger a waveform update.
  *
- * Callers must ensure the display engine is idle (epd_wait_display_ready)
- * before calling, and before writing image data to IT8951 DRAM.  This
- * function does NOT wait internally — it only fires the trigger command.
- *
- * For 1bpp image content use epd_display_area_1bpp() instead, which wraps
- * this function with UP1SR/BGVR management and a post-trigger wait.
- * Use this function directly only for INIT-mode clears (epd_full_clear).
- *
- * @mode: one of EPD_MODE_INIT, EPD_MODE_DU, EPD_MODE_GC16, EPD_MODE_A2_*, etc.
+ * All coordinates are in controller space.  Does NOT wait for the waveform
+ * to complete; callers that need sequencing use epd_wait_display_ready().
+ * For 1bpp content use epd_display_area_1bpp() which manages UP1SR/BGVR.
  *
  * Returns 0 on success, negative errno on error.
  */
@@ -750,8 +658,8 @@ int epd_display_area(struct epd_device *epd, u16 x, u16 y, u16 w, u16 h,
 	if (ret)
 		return ret;
 
-	/* Mirror the x-origin to match epd_load_image_1bpp's mirrored load. */
-	args[0] = epd->mirror_x ? (u16)(epd->panel_w - x - w) : x;
+	/* Coordinates are in controller space; no mirror adjustment needed. */
+	args[0] = x;
 	args[1] = y;
 	args[2] = w;
 	args[3] = h;

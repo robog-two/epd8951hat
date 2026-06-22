@@ -15,9 +15,10 @@
 obj-m := epd8951hat.o
 
 epd8951hat-objs := \
-	epd8951hat_drv.o     \
-	epd8951hat_spi.o     \
-	epd8951hat_refresh.o
+	epd8951hat_drv.o      \
+	epd8951hat_spi.o      \
+	epd8951hat_refresh.o  \
+	epd8951hat_pipeline.o
 
 KDIR ?= /lib/modules/$(shell uname -r)/build
 PWD  := $(shell pwd)
@@ -32,7 +33,7 @@ OVERLAY_DTB  := $(PWD)/epd8951hat.dtbo
 OVERLAYS_DIR := /boot/overlays
 CONFIG_TXT   := /boot/config.txt
 
-.PHONY: all dtbo clean install uninstall
+.PHONY: all dtbo clean install uninstall test
 
 all:
 	$(MAKE) -C $(KDIR) M=$(PWD) modules
@@ -42,8 +43,12 @@ dtbo: $(OVERLAY_DTB)
 $(OVERLAY_DTB): $(OVERLAY_SRC)
 	dtc -@ -I dts -O dtb -o $@ $< 2>&1 | grep -v '^/' || true
 
+test:
+	$(MAKE) -C tests run
+
 clean:
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
+	$(MAKE) -C tests clean
 	rm -f $(OVERLAY_DTB)
 
 install: all dtbo
