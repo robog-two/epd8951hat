@@ -85,7 +85,7 @@ jobs:
       shell: bash
       run: |
         make test
-        make
+      ke
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v4

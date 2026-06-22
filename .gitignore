@@ -4,7 +4,9 @@
 *.mod
 *.symvers
 *.order
+*.cmd
 Module.symvers
 modules.order
 .tmp_versions/
 
+tests/test_pipeline

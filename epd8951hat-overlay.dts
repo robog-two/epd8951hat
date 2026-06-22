@@ -1,0 +1,53 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/dts-v1/;
+/plugin/;
+
+/*
+ * epd8951hat-overlay.dts  -  Device Tree overlay for Waveshare IT8951 e-Paper HAT
+ *
+ * Targets SPI0 CS0 on Raspberry Pi 4 (BCM2711).
+ *
+ * Default GPIO mapping (matches epd8951hat_main.c module param defaults):
+ *   RST  = GPIO 17  (physical pin 11)
+ *   BUSY = GPIO 24  (physical pin 18)
+ *   CS   = GPIO 8   (physical pin 24 / SPI0_CE0, driven by SPI controller)
+ *
+ * GPIO flag constants (from dt-bindings/gpio/gpio.h):
+ *   GPIO_ACTIVE_HIGH = 0
+ *   GPIO_ACTIVE_LOW  = 1
+ *
+ * Install:
+ *   dtc -@ -I dts -O dtb -o epd8951hat.dtbo epd8951hat-overlay.dts
+ *   sudo cp epd8951hat.dtbo /boot/overlays/
+ *   Add "dtoverlay=epd8951hat" to /boot/config.txt, then reboot.
+ */
+
+/ {
+	compatible = "brcm,bcm2711";
+
+	fragment@0 {
+		target = <&spi0>;
+		__overlay__ {
+			status = "okay";
+
+			/* Disable the default spidev on CS0 */
+			spidev@0 {
+				reg = <0>;
+				status = "disabled";
+			};
+
+			epd8951hat: epd8951hat@0 {
+				compatible = "waveshare,it8951";
+				reg = <0>;                        /* SPI0 CS0 */
+				spi-max-frequency = <12000000>;   /* 12 MHz */
+				rst-gpios  = <&gpio 17 0>;        /* GPIO_ACTIVE_HIGH */
+				busy-gpios = <&gpio 24 0>;        /* GPIO_ACTIVE_HIGH */
+				/*
+				 * CS is handled by the SPI controller (GPIO 8 / SPI0_CE0
+				 * in ALT0 mode).  The driver does not request it as a GPIO;
+				 * the SPI core asserts CE0 automatically for each transfer.
+				 */
+			};
+		};
+	};
+};
