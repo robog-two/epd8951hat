@@ -26,14 +26,17 @@
  * ========================================================================= */
 
 /*
- * Align a pixel rectangle outward to IT8951 4bpp requirements:
- *   - x and width: multiple of 2 pixels (one 4bpp byte = 2 pixels)
- *   - M641 additionally requires 8-pixel (4-byte) alignment
+ * Align a pixel rectangle outward to IT8951 1bpp packed-mode requirements.
+ *
+ * In 1bpp packed mode the image is loaded with Area_X = x/8 and Area_W = w/8,
+ * so both x and w must be multiples of 8.  This is stricter than the old 4bpp
+ * requirement (2 pixels for M841, 8 pixels for M641) but is now uniform across
+ * all LUT variants — the needs_4byte_align flag no longer changes behaviour.
  */
 static void epd_align_region(struct epd_device *epd,
 			      int *x, int *y, int *w, int *h)
 {
-	int align = epd->needs_4byte_align ? 8 : 2;
+	int align = 8;
 	int x0 = *x, x1 = *x + *w;
 
 	x0 = ALIGN_DOWN(x0, align);
@@ -57,7 +60,8 @@ static void epd_align_region(struct epd_device *epd,
  * Returns true if any row changed.
  * ========================================================================= */
 static bool epd_region_changed(struct epd_device *epd,
-				int *rx, int *ry, int *rw, int *rh)
+				int *rx, int *ry, int *rw, int *rh,
+				u64 *changed_pixels)
 {
 	const u8 *cur  = epd->mono_buf;
 	const u8 *prev = epd->screen_shadow;
@@ -66,24 +70,39 @@ static bool epd_region_changed(struct epd_device *epd,
 	int byte0 = *rx / 8;
 	int byte1 = (*rx + *rw - 1) / 8;
 	int row;
+	u64 diff_bytes = 0;
 
 	for (row = 0; row < *rh; row++) {
 		int src_row = *ry + row;
 		size_t off  = (size_t)src_row * stride + byte0;
 		size_t len  = (size_t)(byte1 - byte0 + 1);
+		const u8 *a = cur + off;
+		const u8 *b = prev + off;
+		size_t i;
+		bool row_changed = false;
 
-		if (memcmp(cur + off, prev + off, len) != 0) {
+		for (i = 0; i < len; i++) {
+			if (a[i] != b[i]) {
+				diff_bytes++;
+				row_changed = true;
+			}
+		}
+		if (row_changed) {
 			if (top < 0)
 				top = row;
 			bot = row;
 		}
 	}
 
-	if (top < 0)
+	if (top < 0) {
+		*changed_pixels = 0;
 		return false;
+	}
 
 	*ry += top;
 	*rh  = bot - top + 1;
+	/* Each differing byte represents 8 pixels in 1bpp packed format */
+	*changed_pixels = diff_bytes * 8;
 	return true;
 }
 
@@ -121,7 +140,7 @@ void epd_do_refresh(struct epd_device *epd, const struct drm_rect *damage)
 	int w = drm_rect_width(damage);
 	int h = drm_rect_height(damage);
 	u64 panel_area = (u64)epd->panel_w * epd->panel_h;
-	u64 changed_area;
+	u64 changed_pixels;
 	unsigned int pct;
 	int ret;
 
@@ -141,7 +160,7 @@ void epd_do_refresh(struct epd_device *epd, const struct drm_rect *damage)
 	 * is then used to compute pct so small real changes (cursor, one line of
 	 * text) correctly score low and take the A2 path.
 	 */
-	if (!epd_region_changed(epd, &x, &y, &w, &h)) {
+	if (!epd_region_changed(epd, &x, &y, &w, &h, &changed_pixels)) {
 		dev_dbg(&epd->spi->dev,
 			"damage (%d,%d)+%dx%d unchanged vs shadow\n",
 			damage->x1, damage->y1,
@@ -149,9 +168,14 @@ void epd_do_refresh(struct epd_device *epd, const struct drm_rect *damage)
 		goto out;
 	}
 
-	changed_area = (u64)w * h;
+	/*
+	 * Percentage based on actually-differing pixels (diff_bytes×8), not the
+	 * bounding-box area.  Fbcon reports full-screen damage on every commit,
+	 * so using the rect area would always score ~100%; counting real diffs
+	 * means a single line of text or a cursor correctly scores low.
+	 */
 	pct = (panel_area > 0) ?
-		(unsigned int)min_t(u64, changed_area * 100 / panel_area, 100) : 100;
+		(unsigned int)min_t(u64, changed_pixels * 100 / panel_area, 100) : 100;
 
 	/* ---- Full refresh ------------------------------------------------- */
 	if (pct >= EPD_FULL_REFRESH_THRESHOLD) {
@@ -176,10 +200,10 @@ void epd_do_refresh(struct epd_device *epd, const struct drm_rect *damage)
 			goto out;
 		}
 
-		ret = epd_display_area(epd, 0, 0, epd->panel_w, epd->panel_h,
-				       EPD_MODE_GC16);
+		ret = epd_display_area_1bpp(epd, 0, 0, epd->panel_w, epd->panel_h,
+					    EPD_MODE_GC16);
 		if (ret)
-			dev_err(&epd->spi->dev, "display_area GC16 failed: %d\n", ret);
+			dev_err(&epd->spi->dev, "display_area_1bpp GC16 failed: %d\n", ret);
 
 		memcpy(epd->screen_shadow, epd->mono_buf, epd->fb_size);
 		atomic_set(&epd->a2_count, 0);
@@ -210,8 +234,8 @@ void epd_do_refresh(struct epd_device *epd, const struct drm_rect *damage)
 			goto out;
 		}
 
-		ret = epd_display_area(epd, 0, 0, epd->panel_w, epd->panel_h,
-				       EPD_MODE_GC16);
+		ret = epd_display_area_1bpp(epd, 0, 0, epd->panel_w, epd->panel_h,
+					    EPD_MODE_GC16);
 		if (ret)
 			dev_err(&epd->spi->dev, "post-clear GC16 failed: %d\n", ret);
 
@@ -224,7 +248,7 @@ void epd_do_refresh(struct epd_device *epd, const struct drm_rect *damage)
 	if (w <= 0 || h <= 0)
 		goto out;
 
-	dev_dbg(&epd->spi->dev, "partial A2 (%d,%d)+%dx%d [%u%%]\n",
+	dev_dbg(&epd->spi->dev, "partial A2 (%d,%d)+%dx%d [%u%% changed]\n",
 		x, y, w, h, pct);
 
 	ret = epd_wait_display_ready(epd);
@@ -240,9 +264,9 @@ void epd_do_refresh(struct epd_device *epd, const struct drm_rect *damage)
 		goto out;
 	}
 
-	ret = epd_display_area(epd, x, y, w, h, epd->a2_mode);
+	ret = epd_display_area_1bpp(epd, x, y, w, h, epd->a2_mode);
 	if (ret) {
-		dev_err(&epd->spi->dev, "partial display_area failed: %d\n", ret);
+		dev_err(&epd->spi->dev, "partial display_area_1bpp failed: %d\n", ret);
 		goto out;
 	}
 

@@ -60,6 +60,9 @@ deps_/home/robog/Documents/Code/epd8951hat/epd8951hat_spi.o := \
   arch/arm64/include/generated/uapi/asm/swab.h \
   include/uapi/asm-generic/swab.h \
   include/linux/byteorder/generic.h \
+  include/linux/bitrev.h \
+    $(wildcard include/config/HAVE_ARCH_BITREVERSE) \
+  arch/arm64/include/asm/bitrev.h \
   include/linux/delay.h \
   include/linux/math.h \
   arch/arm64/include/generated/asm/div64.h \

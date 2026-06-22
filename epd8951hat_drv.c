@@ -443,7 +443,7 @@ static int epd_probe(struct spi_device *spi)
 	/* ---- Configure SPI bus -------------------------------------------- */
 	spi->mode          = SPI_MODE_0;
 	spi->bits_per_word = 8;
-	spi->max_speed_hz  = 8000000;
+	spi->max_speed_hz  = 12000000;  /* 12 MHz; matches Waveshare reference (12.5 MHz) */
 	ret = spi_setup(spi);
 	if (ret) {
 		dev_err(&spi->dev, "spi_setup failed: %d\n", ret);

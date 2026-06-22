@@ -8,6 +8,7 @@
  */
 
 #include <asm/byteorder.h>
+#include <linux/bitrev.h>
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/gpio/consumer.h>
@@ -588,22 +589,27 @@ int epd_wait_display_ready(struct epd_device *epd)
 /*
  * epd_load_image_1bpp - Load a 1-bpp pixel region into IT8951 DRAM.
  *
- * Extracts the sub-region [x, x+w) × [y, y+h) from a 1-bpp Linux framebuffer
- * (MSB-first, row-major, stride = fb_stride bytes/row), converts each bit to a
- * 4-bpp nibble (bit=0 → 0x0 white, bit=1 → 0xF black), packs two nibbles per
- * byte, and streams the result to IT8951 using LD_IMG_AREA in 4BPP host format.
+ * Uses IT8951's hardware 1bpp packed mode: raw source bytes are sent as-is
+ * using the 8BPP SPI container format with Area_X=x/8 and Area_W=w/8.
+ * Each transferred "8bpp pixel" byte contains 8 packed 1bpp source pixels.
+ * IT8951 expands them to display pixels via the BGVR gray table when the
+ * caller subsequently enables UP1SR 1bpp display mode (see epd_display_area_1bpp).
  *
- * This avoids the UP1SR 1-bp display mode entirely: the A2/GC16 waveforms
- * handle binary 0x0/0xF pixel values natively.
+ * This transfers w*h/8 bytes instead of the w*h/2 bytes a 4bpp conversion
+ * would require — a 4× reduction for full-panel refreshes.
  *
- * w must be even (4-byte-aligned for M641).  Enforced by the caller in
- * epd_do_refresh() via epd_align_region().
+ * Preconditions (enforced by epd_align_region via epd_do_refresh):
+ *   - x and w must be multiples of 8 (required by Area_X=x/8, Area_W=w/8).
+ *
+ * Mirror handling: when mirror_x is set, bytes within each row are reversed
+ * and their bits are reversed with bitrev8(), so the image appears horizontally
+ * flipped on the controller side while framebuffer coordinates are preserved.
  *
  * Steps:
  *   1. Set LISAR (IT8951 image RAM base address)
- *   2. Send LD_IMG_AREA command with 5 args
- *   3. Extract region from fb_base, convert 1bpp→4bpp, pack into spi_buf
- *   4. Bulk-send spi_buf (single DMA-friendly spi_write)
+ *   2. Send LD_IMG_AREA with 8BPP format and packed-1bpp area coordinates
+ *   3. Copy/mirror source rows into spi_buf
+ *   4. Bulk-send spi_buf
  *   5. Send LD_IMG_END
  *
  * Returns 0 on success, negative errno on error.
@@ -615,15 +621,18 @@ int epd_load_image_1bpp(struct epd_device *epd,
 	u16 args[5];
 	u32 base_addr = epd->img_ram_addr;
 	/*
-	 * 4bpp output: 2 pixels per byte → (w * h / 2) bytes.
-	 * w is guaranteed even by caller alignment, but (w/2)*h can still be
-	 * odd (e.g. w=2, h=3 → 3 bytes).  The IT8951 SPI interface is 16-bit;
-	 * an odd-byte transfer splits the last word across SPI transactions and
-	 * corrupts the protocol.  Round up to the next even byte and pad with
-	 * 0x00 (white nibbles).
+	 * 1bpp packed: 8 pixels per byte → w/8 bytes per row.
+	 * w is guaranteed a multiple of 8 by the caller's alignment.
+	 * Total bytes must be even for the IT8951's 16-bit SPI protocol.
 	 */
-	size_t out_bytes     = (size_t)(w / 2) * h;
+	size_t row_bytes     = w / 8;
+	size_t out_bytes     = row_bytes * (size_t)h;
 	size_t out_bytes_dma = ALIGN(out_bytes, 2);
+	/*
+	 * Mirror: load to the controller x-coordinate that maps to framebuffer
+	 * column x after the panel's physical flip.
+	 */
+	u16 ctrl_x = epd->mirror_x ? (u16)(epd->panel_w - x - w) : x;
 	int ret;
 
 	if (out_bytes_dma > epd->spi_buf_size) {
@@ -633,14 +642,6 @@ int epd_load_image_1bpp(struct epd_device *epd,
 		return -EINVAL;
 	}
 
-	/*
-	 * Horizontal mirror: the panel maps controller column c to screen column
-	 * (panel_w - 1 - c).  To make framebuffer column j appear at screen
-	 * column j we load the region at the mirrored controller x-origin and
-	 * reverse the column order while packing (see step 3).
-	 */
-	u16 ctrl_x = epd->mirror_x ? (u16)(epd->panel_w - x - w) : x;
-
 	/* 1. Set IT8951 image RAM target address via LISAR registers. */
 	ret = epd_write_reg(epd, IT8951_REG_LISAR + 2, (u16)(base_addr >> 16));
 	if (ret)
@@ -649,21 +650,17 @@ int epd_load_image_1bpp(struct epd_device *epd,
 	if (ret)
 		return ret;
 
-	/* 2. LD_IMG_AREA command with 5 arguments. */
+	/* 2. LD_IMG_AREA: 8BPP container, packed-1bpp area coordinates. */
 	ret = epd_write_cmd(epd, IT8951_CMD_LD_IMG_AREA);
 	if (ret)
 		return ret;
 
-	/*
-	 * args[0] format: bits[15:8]=endian, bits[7:4]=pixel_fmt, bits[3:0]=rotate
-	 * Using 4BPP because we convert 1bpp bits to 0x0/0xF nibbles below.
-	 */
-	args[0] = (u16)((IT8951_ENDIAN_LITTLE << 8) |
-			(IT8951_PIX_FMT_4BPP  << 4) |
+	args[0] = (u16)((IT8951_ENDIAN_BIG << 8) |
+			(IT8951_PIX_FMT_8BPP  << 4) |
 			IT8951_ROTATE_0);
-	args[1] = ctrl_x;
+	args[1] = ctrl_x / 8;   /* controller column in units of 8 pixels */
 	args[2] = y;
-	args[3] = w;
+	args[3] = w / 8;         /* width in units of 8 pixels */
 	args[4] = h;
 
 	{
@@ -677,70 +674,44 @@ int epd_load_image_1bpp(struct epd_device *epd,
 	}
 
 	/*
-	 * 3. Extract [x, x+w) × [y, y+h) from the framebuffer, convert each
-	 *    bit to a 4bpp nibble, and pack two nibbles per byte.
+	 * 3. Pack the source region into spi_buf.
 	 *
-	 *    Linux 1bpp: in byte B at column group c*8..c*8+7, bit 7 is the
-	 *    leftmost pixel.  For pixel at column p:
-	 *      byte   = fb_base[row * fb_stride + p / 8]
-	 *      bit    = (byte >> (7 - p % 8)) & 1
-	 *      nibble = bit ? 0xF : 0x0
+	 * Non-mirrored: copy row_bytes bytes directly from each source row.
+	 * The source bytes are already in IT8951's expected bit order (MSB = left
+	 * pixel in MONO01, which is also what IT8951 1bpp mode expects).
 	 *
-	 *    IT8951 4bpp: upper nibble = left pixel of pair, lower = right.
-	 *    Two pairs per 16-bit word; we build in epd->spi_buf directly.
+	 * Mirrored: reverse the byte order within each row AND reverse the bits
+	 * within each byte (bitrev8).  Together these flip the row left-to-right
+	 * so that framebuffer column x+0 ends up at controller column ctrl_x+0
+	 * (i.e. the rightmost framebuffer column maps to the leftmost controller
+	 * column of the mirrored region).
 	 */
 	{
 		u8 *dst = epd->spi_buf;
-		size_t dst_pos = 0;
-		int row, col;
+		int row;
 
 		for (row = 0; row < (int)h; row++) {
-			int src_row = (int)y + row;
+			const u8 *src = fb_base +
+					(size_t)((int)y + row) * fb_stride +
+					x / 8;
 
-			/*
-			 * Walk the controller's columns left-to-right (col).  When
-			 * mirroring, controller column col reads framebuffer column
-			 * (x + w - 1 - col) so the region is emitted right-to-left;
-			 * otherwise it maps straight to (x + col).
-			 *
-			 * Polarity: Linux MONO01 bit=1 is foreground (black); the
-			 * IT8951 4bpp grayscale uses 0x0=black, 0xF=white, so a set
-			 * bit becomes 0x0 and a clear bit becomes 0xF.
-			 */
-			for (col = 0; col < (int)w; col += 2) {
-				int sc0 = epd->mirror_x ?
-					  (int)x + (int)w - 1 - col :
-					  (int)x + col;
-				int sc1 = epd->mirror_x ? sc0 - 1 : sc0 + 1;
-				bool sc1_valid = epd->mirror_x ?
-						 (col + 1 < (int)w) :
-						 (sc1 < (int)x + (int)w);
-				u8 src_byte;
-				u8 n0, n1;
+			if (epd->mirror_x) {
+				int j;
 
-				src_byte = fb_base[(size_t)src_row * fb_stride + sc0 / 8];
-				n0 = ((src_byte >> (7 - sc0 % 8)) & 1u) ? 0x0u : 0xFu;
-
-				if (sc1_valid) {
-					src_byte = fb_base[(size_t)src_row * fb_stride + sc1 / 8];
-					n1 = ((src_byte >> (7 - sc1 % 8)) & 1u) ? 0x0u : 0xFu;
-				} else {
-					n1 = 0xFu;  /* white padding for odd width */
-				}
-
-				/* little-endian 4bpp: first (left) pixel in low nibble */
-				dst[dst_pos++] = (n1 << 4) | n0;
+				for (j = 0; j < (int)row_bytes; j++)
+					dst[j] = bitrev8(src[row_bytes - 1 - j]);
+			} else {
+				memcpy(dst, src, row_bytes);
 			}
+			dst += row_bytes;
 		}
 
-		WARN_ON(dst_pos != out_bytes);
-
-		/* Pad to even byte count if necessary (white nibble = 0xFF). */
+		/* Pad to even byte count (white = 0xFF in 1bpp). */
 		if (out_bytes_dma > out_bytes)
-			dst[dst_pos] = 0xFF;
+			epd->spi_buf[out_bytes] = 0xFFu;
 	}
 
-	/* 4. Bulk-send spi_buf: preamble + all 4bpp pixel bytes in one CS frame. */
+	/* 4. Bulk-send spi_buf: preamble + all packed 1bpp bytes in one CS frame. */
 	ret = epd_write_data_bulk(epd, epd->spi_buf, out_bytes_dma);
 	if (ret)
 		return ret;
@@ -754,10 +725,15 @@ int epd_load_image_1bpp(struct epd_device *epd,
 }
 
 /*
- * epd_display_area - Trigger a display update for a pixel region.
+ * epd_display_area - Send CMD_DPY_AREA to trigger a waveform update.
  *
- * Waits for the display engine to be idle, then sends CMD_DPY_AREA with
- * the rectangle coordinates and the requested refresh mode.
+ * Callers must ensure the display engine is idle (epd_wait_display_ready)
+ * before calling, and before writing image data to IT8951 DRAM.  This
+ * function does NOT wait internally — it only fires the trigger command.
+ *
+ * For 1bpp image content use epd_display_area_1bpp() instead, which wraps
+ * this function with UP1SR/BGVR management and a post-trigger wait.
+ * Use this function directly only for INIT-mode clears (epd_full_clear).
  *
  * @mode: one of EPD_MODE_INIT, EPD_MODE_DU, EPD_MODE_GC16, EPD_MODE_A2_*, etc.
  *
@@ -769,10 +745,6 @@ int epd_display_area(struct epd_device *epd, u16 x, u16 y, u16 w, u16 h,
 	u16 args[5];
 	size_t i;
 	int ret;
-
-	ret = epd_wait_display_ready(epd);
-	if (ret)
-		return ret;
 
 	ret = epd_write_cmd(epd, IT8951_CMD_DPY_AREA);
 	if (ret)
@@ -800,6 +772,81 @@ int epd_display_area(struct epd_device *epd, u16 x, u16 y, u16 w, u16 h,
 		x, y, w, h, mode);
 
 	return 0;
+}
+
+/*
+ * epd_display_area_1bpp - Trigger a waveform update for 1bpp image content.
+ *
+ * Wraps epd_display_area with the UP1SR 1bpp-expansion and BGVR setup that
+ * IT8951 requires to correctly drive the panel from packed 1bpp DRAM data
+ * (as loaded by epd_load_image_1bpp).
+ *
+ * Sequence:
+ *   1. Read-modify-write UP1SR+2 to set the 1bpp-expansion enable bit
+ *   2. Write BGVR with foreground=black (0x00) / background=white (0xF0)
+ *   3. Send DPY_AREA trigger (via epd_display_area)
+ *   4. Wait for the waveform to complete (LUTAFSR → 0)
+ *   5. Read-modify-write UP1SR+2 to clear the enable bit
+ *
+ * The wait in step 4 is mandatory: the UP1SR bit must stay set while the
+ * waveform is running, and we must clear it before the next image load so
+ * that subsequent INIT-mode clears (which load 4bpp data) are unaffected.
+ *
+ * The UP1SR bit is always restored on exit, even if step 3 or 4 fails.
+ *
+ * Returns 0 on success, negative errno on error.
+ */
+int epd_display_area_1bpp(struct epd_device *epd, u16 x, u16 y, u16 w, u16 h,
+			   u8 mode)
+{
+	u16 up1sr2;
+	int ret, ret2;
+
+	/* 1. Enable 1bpp display expansion in UP1SR+2. */
+	ret = epd_read_reg(epd, IT8951_REG_UP1SR + 2, &up1sr2);
+	if (ret) {
+		dev_err(&epd->spi->dev,
+			"display_area_1bpp: UP1SR+2 read failed: %d\n", ret);
+		return ret;
+	}
+	ret = epd_write_reg(epd, IT8951_REG_UP1SR + 2,
+			    up1sr2 | IT8951_UP1SR2_1BPP_EN);
+	if (ret) {
+		dev_err(&epd->spi->dev,
+			"display_area_1bpp: UP1SR+2 set failed: %d\n", ret);
+		return ret;
+	}
+
+	/* 2. Set foreground/background gray levels for 1bpp expansion. */
+	ret = epd_write_reg(epd, IT8951_REG_BGVR, IT8951_BGVR_DEFAULT);
+	if (ret) {
+		dev_err(&epd->spi->dev,
+			"display_area_1bpp: BGVR write failed: %d\n", ret);
+		goto restore_up1sr;
+	}
+
+	/* 3. Fire the display trigger. */
+	ret = epd_display_area(epd, x, y, w, h, mode);
+	if (ret)
+		goto restore_up1sr;
+
+	/* 4. Wait for the waveform to complete before releasing 1bpp mode. */
+	ret = epd_wait_display_ready(epd);
+	if (ret)
+		dev_err(&epd->spi->dev,
+			"display_area_1bpp: waveform timeout: %d\n", ret);
+
+restore_up1sr:
+	/* 5. Always restore UP1SR+2 regardless of earlier errors. */
+	ret2 = epd_read_reg(epd, IT8951_REG_UP1SR + 2, &up1sr2);
+	if (!ret2)
+		epd_write_reg(epd, IT8951_REG_UP1SR + 2,
+			      up1sr2 & ~IT8951_UP1SR2_1BPP_EN);
+	else
+		dev_err(&epd->spi->dev,
+			"display_area_1bpp: UP1SR+2 restore read failed: %d\n", ret2);
+
+	return ret;
 }
 
 /*
@@ -887,8 +934,20 @@ int epd_full_clear(struct epd_device *epd)
 	/* INIT waveform erases all pixel memory (removes ghosting) */
 	ret = epd_display_area(epd, 0, 0, epd->panel_w, epd->panel_h,
 			       EPD_MODE_INIT);
-	if (ret)
+	if (ret) {
 		dev_err(&epd->spi->dev, "full_clear: display_area failed: %d\n", ret);
+		return ret;
+	}
+
+	/*
+	 * Wait for the INIT waveform to complete before returning.  epd_display_area
+	 * no longer waits internally, so without this the caller (e.g. probe) would
+	 * return while the waveform is still driving the panel.
+	 */
+	ret = epd_wait_display_ready(epd);
+	if (ret)
+		dev_err(&epd->spi->dev,
+			"full_clear: INIT waveform timeout: %d\n", ret);
 
 	return ret;
 }

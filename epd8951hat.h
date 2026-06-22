@@ -113,16 +113,24 @@
  * 1-bpp display mode helpers
  * ========================================================================= */
 
-#define IT8951_BGVR_BLACK           0xF0u
-#define IT8951_BGVR_WHITE           0x00u
-#define IT8951_BGVR_DEFAULT         ((IT8951_BGVR_BLACK << 8) | IT8951_BGVR_WHITE)
+/*
+ * BGVR for MONO01 1bpp display mode:
+ *   high byte = foreground gray (bit=1 = ink = black) → 0x00
+ *   low  byte = background gray (bit=0 = paper = white) → 0xF0
+ * In IT8951 4bpp scale: 0x0=black, 0xF=white; each nibble is stored in the
+ * upper nibble of its BGVR byte (e.g. 0xF0 encodes gray level 0xF = white).
+ */
+#define IT8951_BGVR_DEFAULT         0x00F0u
 #define IT8951_UP1SR2_1BPP_EN       (1u << 2)
 
 /* =========================================================================
  * Refresh policy thresholds
  * ========================================================================= */
 
-#define EPD_NOMINAL_VREFRESH_HZ     1u    /* reported refresh rate (e-paper ~1 Hz full-refresh) */
+#define EPD_NOMINAL_VREFRESH_HZ     30u   /* nominal vrefresh reported to compositor; must be >1
+                                             so niri's FrameClock (which asserts interval < 1s)
+                                             doesn't panic. The driver's workqueue drops frames
+                                             that arrive faster than the SPI bus can flush them. */
 #define EPD_FULL_REFRESH_THRESHOLD  95u   /* percent of panel area → INIT+GC16 */
 #define EPD_MIN_UPDATE_PIXELS       16u   /* skip partial refresh if area < 4×4 */
 #define EPD_A2_GHOSTING_LIMIT       20u   /* A2 refreshes before INIT clear */
@@ -241,6 +249,20 @@ int  epd_load_image_1bpp(struct epd_device *epd,
 
 int  epd_display_area(struct epd_device *epd, u16 x, u16 y, u16 w, u16 h,
 		       u8 mode);
+
+/*
+ * epd_display_area_1bpp - trigger a waveform update for 1bpp content.
+ *
+ * Wraps epd_display_area with the UP1SR 1bpp-expansion enable/disable
+ * sequence and waits for the waveform to complete before returning, so
+ * UP1SR is always restored to its previous state on exit.
+ *
+ * Use this (not epd_display_area) for all A2/GC16/DU updates after
+ * epd_load_image_1bpp().  Do NOT use for INIT clears (epd_full_clear
+ * loads 4bpp white data and calls epd_display_area directly).
+ */
+int  epd_display_area_1bpp(struct epd_device *epd, u16 x, u16 y, u16 w, u16 h,
+			    u8 mode);
 
 int  epd_full_clear(struct epd_device *epd);
 
