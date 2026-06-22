@@ -1,14 +1,6 @@
-// SPDX-License-Identifier: GPL-2.0
-/*
- * epd8951hat_refresh.c – Pipeline stage 3: flip, diff, partial SPI refresh.
- *
- * Receives the dithered 1bpp image from mono_buf (stage 2), horizontally flips
- * it into flip_buf (honoring epd->mirror_x), diffs byte-by-byte against the
- * previous frame stored in flip_buf, then loads only the dirty bounding box
- * into the IT8951 and fires an A2 partial waveform.
- *
- * Skips the SPI transfer entirely when the frame is identical to the last one.
- */
+
+
+
 
 #include <linux/device.h>
 #include <linux/kernel.h>
@@ -29,7 +21,7 @@ void epd_do_refresh(struct epd_device *epd)
 			       &y0, &y1, &b0, &b1);
 
 	if (y0 > y1)
-		return; /* frame identical to previous – skip SPI entirely */
+		return;  
 
 	epd_align_dirty_bytes(stride, epd->needs_4byte_align, &b0, &b1);
 

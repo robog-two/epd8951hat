@@ -1,10 +1,6 @@
-/* SPDX-License-Identifier: GPL-2.0 */
-/*
- * Kernel-to-userspace compatibility shim for unit-testing epd8951hat pipeline
- * functions without the kernel build environment.
- *
- * Included by epd8951hat_pipeline.h when TESTING_BUILD is defined.
- */
+ 
+
+
 #pragma once
 
 #include <stdbool.h>
@@ -35,10 +31,9 @@ static inline u8 bitrev8(u8 byte)
 	return byte;
 }
 
-/*
- * strnstr: find @needle in the first @n bytes of @haystack.
- * Returns pointer to first occurrence, or NULL.
- */
+
+
+#ifndef __APPLE__
 static inline char *strnstr(const char *haystack, const char *needle, size_t n)
 {
 	size_t needle_len;
@@ -56,3 +51,4 @@ static inline char *strnstr(const char *haystack, const char *needle, size_t n)
 	}
 	return NULL;
 }
+#endif

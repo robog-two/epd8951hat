@@ -1,16 +1,6 @@
-// SPDX-License-Identifier: GPL-2.0
-/*
- * tests/test_pipeline.c – Unit tests for epd8951hat pure pipeline functions.
- *
- * Covers:
- *   1. Floyd-Steinberg dithering (epd_dither_xrgb8888_fn)
- *   2. Mirror + dirty-rect computation (epd_compute_dirty_rect)
- *   3. 4-byte dirty-byte alignment (epd_align_dirty_bytes)
- *   4. LUT variant classification (epd_lut_classify)
- *
- * Build: see tests/Makefile
- * Run:   ./test_pipeline
- */
+
+
+
 
 #include "../epd8951hat_pipeline.h"
 
@@ -18,13 +8,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* =========================================================================
- * Minimal test framework
- * ========================================================================= */
+
+
 
 static int g_passed;
 static int g_failed;
-static int g_test_ok;  /* set to 0 on first CHECK failure inside a test */
+static int g_test_ok;   
 
 #define CHECK(cond) do { \
 	if (!(cond)) { \
@@ -58,10 +47,8 @@ static void run_test(const char *name, void (*fn)(void))
 
 #define RUN(fn) run_test(#fn, fn)
 
-/* =========================================================================
- * Helper: pack an XRGB8888 pixel into a 4-byte little-endian buffer
- * byte[0]=B, [1]=G, [2]=R, [3]=X (DRM layout)
- * ========================================================================= */
+
+
 
 static void px(u8 *buf, u8 r, u8 g, u8 b)
 {
@@ -71,23 +58,22 @@ static void px(u8 *buf, u8 r, u8 g, u8 b)
 	buf[3] = 0;
 }
 
-/* =========================================================================
- * 1. Floyd-Steinberg dithering tests
- * ========================================================================= */
+
+
 
 static void test_dither_white_image(void)
 {
-	/* A solid white 4×4 image should produce all-zero mono_buf (no black). */
+	 
 	const u16 w = 4, h = 4;
-	const u32 stride = 1;              /* ceil(4/8) = 1 byte/row          */
-	u8 src[4 * 4 * 4];                /* w * h * 4 bytes                 */
-	u8 mono[4 * 1];                   /* stride * h                      */
+	const u32 stride = 1;               
+	u8 src[4 * 4 * 4];                 
+	u8 mono[4 * 1];                    
 	int i;
 
 	for (i = 0; i < 4 * 4; i++)
 		px(src + i * 4, 255, 255, 255);
 
-	memset(mono, 0xAA, sizeof(mono));  /* poison to detect stale data     */
+	memset(mono, 0xAA, sizeof(mono));   
 	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono);
 
 	for (i = 0; i < (int)(stride * h); i++)
@@ -96,7 +82,7 @@ static void test_dither_white_image(void)
 
 static void test_dither_black_image(void)
 {
-	/* A solid black 8×2 image: all bits in mono_buf should be set (=black). */
+	 
 	const u16 w = 8, h = 2;
 	const u32 stride = 1;
 	u8 src[8 * 2 * 4];
@@ -114,32 +100,28 @@ static void test_dither_black_image(void)
 
 static void test_dither_bit_order(void)
 {
-	/*
-	 * A single black pixel at column 0 of a 16-pixel row → bit 7 of byte 0.
-	 * All other pixels white.
-	 */
+	
+
 	const u16 w = 16, h = 1;
-	const u32 stride = 2;              /* ceil(16/8) */
+	const u32 stride = 2;               
 	u8 src[16 * 4];
 	u8 mono[2];
 	int i;
 
 	for (i = 0; i < 16; i++)
-		px(src + i * 4, 255, 255, 255);  /* all white  */
-	px(src + 0 * 4, 0, 0, 0);            /* pixel 0 black */
+		px(src + i * 4, 255, 255, 255);   
+	px(src + 0 * 4, 0, 0, 0);             
 
 	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono);
 
-	CHECK(mono[0] & 0x80);             /* bit 7 of byte 0 set             */
-	CHECK_EQ(mono[1], 0x00);           /* byte 1 unchanged                */
+	CHECK(mono[0] & 0x80);              
+	CHECK_EQ(mono[1], 0x00);            
 }
 
 static void test_dither_bit_order_last_col(void)
 {
-	/*
-	 * Black pixel at column 7 of an 8-pixel row → bit 0 of byte 0.
-	 * All other pixels white.
-	 */
+	
+
 	const u16 w = 8, h = 1;
 	const u32 stride = 1;
 	u8 src[8 * 4];
@@ -152,17 +134,13 @@ static void test_dither_bit_order_last_col(void)
 
 	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono);
 
-	CHECK(mono[0] & 0x01);             /* bit 0 set                       */
+	CHECK(mono[0] & 0x01);              
 }
 
 static void test_dither_50pct_gray_two_pixels(void)
 {
-	/*
-	 * Two 50%-gray pixels in a row.  F-S distributes the quantization error:
-	 *   pixel 0 → black (gray=127 < 128, err=+127 → err_cur[2] += 7*127=889)
-	 *   pixel 1 → white (gray=127 + 889/16=55 = 182 ≥ 128)
-	 * Net: exactly one bit set (bit 7 of byte 0).
-	 */
+	
+
 	const u16 w = 2, h = 1;
 	const u32 stride = 1;
 	u8 src[2 * 4];
@@ -173,42 +151,34 @@ static void test_dither_50pct_gray_two_pixels(void)
 
 	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono);
 
-	CHECK(mono[0] & 0x80);             /* pixel 0 → black                 */
-	CHECK(!(mono[0] & 0x40));          /* pixel 1 → white                 */
+	CHECK(mono[0] & 0x80);              
+	CHECK(!(mono[0] & 0x40));           
 }
 
 static void test_dither_luma_weights(void)
 {
-	/*
-	 * Pure-color pixels to verify the luma formula (77R+150G+29B)/256:
-	 *   pure red   (255,0,0): luma≈76  → black (< 128)
-	 *   pure green (0,255,0): luma≈149 → white (≥ 128)
-	 *   pure blue  (0,0,255): luma≈29  → black (< 128)
-	 *
-	 * 3 pixels in a row → stride = 1 byte (3 bits used, 5 spare).
-	 */
+	
+
 	const u16 w = 3, h = 1;
 	const u32 stride = 1;
 	u8 src[3 * 4];
 	u8 mono[1];
 
-	px(src + 0 * 4, 255, 0, 0);   /* red   at col 0 → bit 7 */
-	px(src + 1 * 4, 0, 255, 0);   /* green at col 1 → bit 6 */
-	px(src + 2 * 4, 0, 0, 255);   /* blue  at col 2 → bit 5 */
+	px(src + 0 * 4, 255, 0, 0);    
+	px(src + 1 * 4, 0, 255, 0);    
+	px(src + 2 * 4, 0, 0, 255);    
 
 	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono);
 
-	CHECK(mono[0] & 0x80);             /* red   → black (bit 7 set)       */
-	CHECK(!(mono[0] & 0x40));          /* green → white (bit 6 clear)     */
-	CHECK(mono[0] & 0x20);             /* blue  → black (bit 5 set)       */
+	CHECK(mono[0] & 0x80);              
+	CHECK(!(mono[0] & 0x40));           
+	CHECK(mono[0] & 0x20);              
 }
 
 static void test_dither_second_row(void)
 {
-	/*
-	 * Black pixel on row 1, col 0 of a 2-row image.  Row 0 is all white.
-	 * Verify the byte index y*stride + x/8 is correct for row=1.
-	 */
+	
+
 	const u16 w = 8, h = 2;
 	const u32 stride = 1;
 	u8 src[8 * 2 * 4];
@@ -216,22 +186,19 @@ static void test_dither_second_row(void)
 	int i;
 
 	for (i = 0; i < 8 * 2; i++)
-		px(src + i * 4, 255, 255, 255);   /* all white    */
-	px(src + (8 + 0) * 4, 0, 0, 0);       /* row 1, col 0 → black */
+		px(src + i * 4, 255, 255, 255);    
+	px(src + (8 + 0) * 4, 0, 0, 0);        
 
 	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono);
 
-	CHECK_EQ(mono[0], 0x00);   /* row 0: all white */
-	CHECK(mono[1] & 0x80);     /* row 1, col 0: black */
+	CHECK_EQ(mono[0], 0x00);    
+	CHECK(mono[1] & 0x80);      
 }
 
 static void test_dither_no_spillover_into_next_row(void)
 {
-	/*
-	 * A non-multiple-of-8 width (w=3, stride=1).  Leftover bits 4-0 of
-	 * each byte must remain zero even when the first pixel is black.
-	 * Only bits 7,6,5 may be set.
-	 */
+	
+
 	const u16 w = 3, h = 1;
 	const u32 stride = 1;
 	u8 src[3 * 4];
@@ -243,17 +210,16 @@ static void test_dither_no_spillover_into_next_row(void)
 
 	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono);
 
-	/* Only the top 3 bits (cols 0-2) should be set; lower 5 must be clear. */
+	 
 	CHECK_EQ(mono[0] & 0x1F, 0x00);
 }
 
-/* =========================================================================
- * 2. Mirror + dirty-rect computation tests
- * ========================================================================= */
+
+
 
 static void test_dirty_identical_frames(void)
 {
-	/* If mono_buf == flip_buf (no mirror), no dirty region. */
+	 
 	const u16 h = 4;
 	const u32 stride = 2;
 	u8 mono[4 * 2];
@@ -262,17 +228,17 @@ static void test_dirty_identical_frames(void)
 	int i;
 
 	for (i = 0; i < (int)(h * stride); i++)
-		mono[i] = flip[i] = (u8)(i + 1);  /* same content */
+		mono[i] = flip[i] = (u8)(i + 1);   
 
 	epd_compute_dirty_rect(h, stride, false, mono, flip,
 			       &y0, &y1, &b0, &b1);
 
-	CHECK(y0 > y1);  /* sentinel: nothing dirty */
+	CHECK(y0 > y1);   
 }
 
 static void test_dirty_single_byte_top_left(void)
 {
-	/* One byte differs at (row=0, col=0). */
+	 
 	const u16 h = 4;
 	const u32 stride = 2;
 	u8 mono[4 * 2];
@@ -281,7 +247,7 @@ static void test_dirty_single_byte_top_left(void)
 
 	memset(mono, 0x00, sizeof(mono));
 	memset(flip, 0x00, sizeof(flip));
-	mono[0] = 0xFF;  /* row 0, byte 0 changed */
+	mono[0] = 0xFF;   
 
 	epd_compute_dirty_rect(h, stride, false, mono, flip,
 			       &y0, &y1, &b0, &b1);
@@ -292,7 +258,7 @@ static void test_dirty_single_byte_top_left(void)
 
 static void test_dirty_single_byte_interior(void)
 {
-	/* One byte differs at (row=5, col=3) – tight bbox. */
+	 
 	const u16 h = 8;
 	const u32 stride = 5;
 	u8 mono[8 * 5];
@@ -301,7 +267,7 @@ static void test_dirty_single_byte_interior(void)
 
 	memset(mono, 0x00, sizeof(mono));
 	memset(flip, 0x00, sizeof(flip));
-	mono[5 * 5 + 3] = 0xAB;  /* row 5, byte 3 */
+	mono[5 * 5 + 3] = 0xAB;   
 
 	epd_compute_dirty_rect(h, stride, false, mono, flip,
 			       &y0, &y1, &b0, &b1);
@@ -312,7 +278,7 @@ static void test_dirty_single_byte_interior(void)
 
 static void test_dirty_multiple_rows(void)
 {
-	/* Changes at (row=1,col=0) and (row=3,col=2): bbox spans both. */
+	 
 	const u16 h = 5;
 	const u32 stride = 4;
 	u8 mono[5 * 4];
@@ -321,8 +287,8 @@ static void test_dirty_multiple_rows(void)
 
 	memset(mono, 0x00, sizeof(mono));
 	memset(flip, 0x00, sizeof(flip));
-	mono[1 * 4 + 0] = 0x01;  /* row 1, col 0 */
-	mono[3 * 4 + 2] = 0x02;  /* row 3, col 2 */
+	mono[1 * 4 + 0] = 0x01;   
+	mono[3 * 4 + 2] = 0x02;   
 
 	epd_compute_dirty_rect(h, stride, false, mono, flip,
 			       &y0, &y1, &b0, &b1);
@@ -333,7 +299,7 @@ static void test_dirty_multiple_rows(void)
 
 static void test_dirty_flip_buf_updated(void)
 {
-	/* After the call, flip_buf must contain the new (incoming) values. */
+	 
 	const u16 h = 1;
 	const u32 stride = 2;
 	u8 mono[2] = { 0xAB, 0xCD };
@@ -349,7 +315,7 @@ static void test_dirty_flip_buf_updated(void)
 
 static void test_dirty_no_mirror(void)
 {
-	/* mirror_x=false: bytes are copied as-is into flip_buf. */
+	 
 	const u16 h = 1;
 	const u32 stride = 2;
 	u8 mono[2] = { 0x12, 0x34 };
@@ -365,11 +331,8 @@ static void test_dirty_no_mirror(void)
 
 static void test_dirty_mirror_x_single_byte(void)
 {
-	/*
-	 * stride=1, mirror_x=true: the single byte is bitrev8'd.
-	 * mono_buf[0]=0xAB → bitrev8(0xAB)=0xD5 in flip_buf[0].
-	 * (0xAB = 1010_1011, reversed = 1101_0101 = 0xD5)
-	 */
+	
+
 	const u16 h = 1;
 	const u32 stride = 1;
 	u8 mono[1] = { 0xAB };
@@ -386,12 +349,8 @@ static void test_dirty_mirror_x_single_byte(void)
 
 static void test_dirty_mirror_x_two_bytes(void)
 {
-	/*
-	 * stride=2, mirror_x=true:
-	 *   flip_buf[0] = bitrev8(mono_buf[stride-1-0]) = bitrev8(mono_buf[1])
-	 *   flip_buf[1] = bitrev8(mono_buf[stride-1-1]) = bitrev8(mono_buf[0])
-	 * i.e. the two bytes are swapped AND each is bit-reversed.
-	 */
+	
+
 	const u16 h = 1;
 	const u32 stride = 2;
 	u8 mono[2] = { 0xAB, 0xCD };
@@ -401,34 +360,30 @@ static void test_dirty_mirror_x_two_bytes(void)
 	epd_compute_dirty_rect(h, stride, true, mono, flip,
 			       &y0, &y1, &b0, &b1);
 
-	CHECK_EQ(flip[0], bitrev8(0xCD));   /* bitrev8(mono[1]) */
-	CHECK_EQ(flip[1], bitrev8(0xAB));   /* bitrev8(mono[0]) */
+	CHECK_EQ(flip[0], bitrev8(0xCD));    
+	CHECK_EQ(flip[1], bitrev8(0xAB));    
 }
 
 static void test_dirty_mirror_identical_after_reverse(void)
 {
-	/*
-	 * If flip_buf already holds the mirror-correct values, no dirty region.
-	 * stride=1: flip_buf[0] = bitrev8(mono[0]) already.
-	 */
+	
+
 	const u16 h = 1;
 	const u32 stride = 1;
 	u8 mono[1] = { 0xAB };
-	u8 flip[1] = { bitrev8(0xAB) };   /* already the expected mirrored value */
+	u8 flip[1] = { bitrev8(0xAB) };    
 	int y0, y1, b0, b1;
 
 	epd_compute_dirty_rect(h, stride, true, mono, flip,
 			       &y0, &y1, &b0, &b1);
 
-	CHECK(y0 > y1);  /* nothing dirty */
+	CHECK(y0 > y1);   
 }
 
 static void test_dirty_only_changed_cols_in_bbox(void)
 {
-	/*
-	 * A 1-row, 4-byte-wide frame where only byte 2 changes.
-	 * The dirty column range must be [2, 2], not [0, 3].
-	 */
+	
+
 	const u16 h = 1;
 	const u32 stride = 4;
 	u8 mono[4] = { 0x00, 0x00, 0xFF, 0x00 };
@@ -441,9 +396,8 @@ static void test_dirty_only_changed_cols_in_bbox(void)
 	CHECK_EQ(b0, 2); CHECK_EQ(b1, 2);
 }
 
-/* =========================================================================
- * 3. 4-byte alignment tests
- * ========================================================================= */
+
+
 
 static void test_align_no_align_needed(void)
 {
@@ -455,7 +409,7 @@ static void test_align_no_align_needed(void)
 
 static void test_align_b0_rounds_down(void)
 {
-	/* b0=5 → 5 & ~3 = 4 */
+	 
 	int b0 = 5, b1 = 6;
 	epd_align_dirty_bytes(8, true, &b0, &b1);
 	CHECK_EQ(b0, 4);
@@ -470,7 +424,7 @@ static void test_align_b0_already_aligned(void)
 
 static void test_align_b1_rounds_up(void)
 {
-	/* b1=6 → 6|3 = 7 */
+	 
 	int b0 = 4, b1 = 6;
 	epd_align_dirty_bytes(8, true, &b0, &b1);
 	CHECK_EQ(b1, 7);
@@ -485,7 +439,7 @@ static void test_align_b1_already_aligned(void)
 
 static void test_align_b1_clamped_to_stride_minus_1(void)
 {
-	/* stride=6: b1=5 → 5|3=7, but clamped to 5 (stride-1). */
+	 
 	int b0 = 4, b1 = 5;
 	epd_align_dirty_bytes(6, true, &b0, &b1);
 	CHECK_EQ(b1, 5);
@@ -493,16 +447,15 @@ static void test_align_b1_clamped_to_stride_minus_1(void)
 
 static void test_align_full_range_unchanged(void)
 {
-	/* b0=0, b1=stride-1: already maximally aligned, no change. */
+	 
 	int b0 = 0, b1 = 7;
 	epd_align_dirty_bytes(8, true, &b0, &b1);
 	CHECK_EQ(b0, 0);
 	CHECK_EQ(b1, 7);
 }
 
-/* =========================================================================
- * 4. LUT classification tests
- * ========================================================================= */
+
+
 
 static void test_lut_m641(void)
 {
@@ -542,10 +495,8 @@ static void test_lut_m841_tfa5210(void)
 
 static void test_lut_tfa2812_not_matched_as_plain_m841(void)
 {
-	/*
-	 * "M841_TFA2812" contains "M841" as a substring.
-	 * The classifier must return M841_TFA2812, not M841, due to priority.
-	 */
+	
+
 	u8 a2; bool align;
 	enum epd_lut_variant v = epd_lut_classify("M841_TFA2812", 12, &a2, &align);
 	CHECK(v != EPD_LUT_M841);
@@ -557,7 +508,7 @@ static void test_lut_unknown(void)
 	u8 a2; bool align;
 	enum epd_lut_variant v = epd_lut_classify("GD_TFA2612", 10, &a2, &align);
 	CHECK_EQ(v, EPD_LUT_UNKNOWN);
-	CHECK_EQ(a2, EPD_MODE_A2_M841);  /* safe default */
+	CHECK_EQ(a2, EPD_MODE_A2_M841);   
 	CHECK(!align);
 }
 
@@ -570,10 +521,8 @@ static void test_lut_empty_string(void)
 
 static void test_lut_embedded_in_padding(void)
 {
-	/*
-	 * Realistic case: "M841\0\0\0\0\0\0\0\0\0\0\0\0" (16 bytes, like
-	 * the real lut_version field from GET_DEV_INFO).
-	 */
+	
+
 	char lut[16];
 	u8 a2; bool align;
 	enum epd_lut_variant v;
@@ -597,35 +546,33 @@ static void test_lut_m641_embedded_in_padding(void)
 	CHECK(align);
 }
 
-/* =========================================================================
- * 5. bitrev8 correctness (used by dirty-rect mirroring)
- * ========================================================================= */
+
+
 
 static void test_bitrev8_known_values(void)
 {
-	/* 0xAB = 1010_1011 → reversed 1101_0101 = 0xD5 */
+	 
 	CHECK_EQ(bitrev8(0xAB), 0xD5u);
-	/* 0x80 = 1000_0000 → 0000_0001 = 0x01 */
+	 
 	CHECK_EQ(bitrev8(0x80), 0x01u);
-	/* 0x01 = 0000_0001 → 1000_0000 = 0x80 */
+	 
 	CHECK_EQ(bitrev8(0x01), 0x80u);
-	/* 0xFF → 0xFF, 0x00 → 0x00 */
+	 
 	CHECK_EQ(bitrev8(0xFF), 0xFFu);
 	CHECK_EQ(bitrev8(0x00), 0x00u);
-	/* 0xF0 = 1111_0000 → 0000_1111 = 0x0F */
+	 
 	CHECK_EQ(bitrev8(0xF0), 0x0Fu);
 }
 
 static void test_bitrev8_involution(void)
 {
-	/* bitrev8 must be its own inverse for all byte values */
+	 
 	for (int i = 0; i < 256; i++)
 		CHECK_EQ(bitrev8(bitrev8((u8)i)), (u8)i);
 }
 
-/* =========================================================================
- * main
- * ========================================================================= */
+
+
 
 int main(void)
 {

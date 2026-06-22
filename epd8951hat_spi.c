@@ -1,14 +1,8 @@
-// SPDX-License-Identifier: GPL-2.0
-/*
- * epd8951hat_spi.c  –  IT8951 SPI/GPIO protocol layer
- *
- * Implements all hardware communication for the Waveshare IT8951 e-Paper HAT.
- * The IT8951 uses a 16-bit SPI protocol with manual CS GPIO control and a
- * BUSY GPIO that must be polled before each SPI transfer.
- */
+
+
+
 
 #include <asm/byteorder.h>
-#include <linux/bitrev.h>
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/gpio/consumer.h>
@@ -22,18 +16,11 @@
 #include "epd8951hat.h"
 #include "epd8951hat_pipeline.h"
 
-/* =========================================================================
- * Low-level SPI helpers (static)
- * ========================================================================= */
 
-/*
- * epd_wait_busy - Poll BUSY GPIO until HIGH (ready) or timeout.
- *
- * IT8951 signals BUSY HIGH when ready to accept another word.
- * Poll with a short sleep between attempts; fail after EPD_BUSY_TIMEOUT_MS.
- *
- * Returns 0 when ready, -ETIMEDOUT on timeout.
- */
+
+
+
+
 static int epd_wait_busy(struct epd_device *epd)
 {
 	u64 deadline = ktime_get_ns() +
@@ -51,30 +38,11 @@ static int epd_wait_busy(struct epd_device *epd)
 	return 0;
 }
 
-/*
- * IT8951 chip-select framing
- * ---------------------------
- * Every IT8951 transaction is "preamble word + payload" and the controller
- * only latches it while CS stays asserted for the *whole* sequence.  The Linux
- * SPI core asserts CS at the start of an spi_message and deasserts it at the
- * end, so each logical transaction must be issued as a single message: putting
- * the preamble and the payload in one contiguous transfer (writes), or in two
- * back-to-back transfers of the same message (bulk writes / reads).
- *
- * Splitting a transaction into multiple spi_write()/spi_read() calls — as an
- * earlier version did — deasserts CS between the preamble and the payload, so
- * the controller discards the command and reads return zeros (which is what
- * made GET_DEV_INFO report a 0x0 panel).
- *
- * The reference user-space driver (PaperTTY / Waveshare) achieves the same
- * thing by holding a manual CS GPIO low across the whole sequence.
- */
 
-/*
- * epd_write_cmd - Issue an IT8951 command (preamble 0x6000 + cmd word).
- *
- * Preamble and command word are clocked out in one CS frame.
- */
+
+
+
+
 static int epd_write_cmd(struct epd_device *epd, u16 cmd)
 {
 	__be16 buf[2] = {
@@ -94,11 +62,8 @@ static int epd_write_cmd(struct epd_device *epd, u16 cmd)
 	return ret;
 }
 
-/*
- * epd_write_data - Write a single 16-bit data word (preamble 0x0000 + word).
- *
- * Preamble and data word are clocked out in one CS frame.
- */
+
+
 static int epd_write_data(struct epd_device *epd, u16 data)
 {
 	__be16 buf[2] = {
@@ -118,13 +83,8 @@ static int epd_write_data(struct epd_device *epd, u16 data)
 	return ret;
 }
 
-/*
- * epd_write_data_bulk - Stream a block of already-packed payload bytes.
- *
- * Sends the data preamble (0x0000) and @payload as two transfers of a single
- * spi_message, so CS stays asserted across both.  @payload must be a
- * DMA-capable buffer (callers pass epd->spi_buf).
- */
+
+
 static int epd_write_data_bulk(struct epd_device *epd,
 			       const void *payload, size_t len)
 {
@@ -146,22 +106,11 @@ static int epd_write_data_bulk(struct epd_device *epd,
 	return ret;
 }
 
-/*
- * epd_read_words - Read @n consecutive 16-bit words from the IT8951.
- *
- * Read framing in one CS frame:
- *   [preamble 0x1000][one 16-bit dummy word][n data words, big-endian]
- *
- * Issued as a single full-duplex transfer: the first 2 bytes clock out the
- * read preamble, the next 2 absorb the controller's dummy word, and the
- * remaining 2*n bytes capture the data.  Buffers are kmalloc'd so the transfer
- * is DMA-safe.
- *
- * Returns 0 on success, negative errno on error.
- */
+
+
 static int epd_read_words(struct epd_device *epd, u16 *out, size_t n)
 {
-	size_t total = 4 + 2 * n;   /* preamble + dummy + data */
+	size_t total = 4 + 2 * n;    
 	struct spi_transfer xfer;
 	u8 *tx, *rx;
 	size_t i;
@@ -178,7 +127,7 @@ static int epd_read_words(struct epd_device *epd, u16 *out, size_t n)
 		goto out;
 	}
 
-	/* Read preamble in the first word; the rest clocks out zeros. */
+	 
 	tx[0] = (IT8951_PREAMBLE_READ >> 8) & 0xff;
 	tx[1] = IT8951_PREAMBLE_READ & 0xff;
 
@@ -194,7 +143,7 @@ static int epd_read_words(struct epd_device *epd, u16 *out, size_t n)
 		goto out;
 	}
 
-	/* Data words start after the 2-byte preamble + 2-byte dummy period. */
+	 
 	for (i = 0; i < n; i++)
 		out[i] = ((u16)rx[4 + 2 * i] << 8) | rx[4 + 2 * i + 1];
 
@@ -204,25 +153,18 @@ out:
 	return ret;
 }
 
-/*
- * epd_read_data - Read a single 16-bit word from the IT8951.
- *
- * Returns 0 on success with result in *out, negative errno on error.
- */
+
+
 static int epd_read_data(struct epd_device *epd, u16 *out)
 {
 	return epd_read_words(epd, out, 1);
 }
 
-/* =========================================================================
- * Register access (static)
- * ========================================================================= */
 
-/*
- * epd_write_reg - Write a 16-bit value to an IT8951 register.
- *
- * Sends: CMD_REG_WR → data(reg addr) → data(value)
- */
+
+
+
+
 static int epd_write_reg(struct epd_device *epd, u16 reg, u16 val)
 {
 	int ret;
@@ -238,11 +180,8 @@ static int epd_write_reg(struct epd_device *epd, u16 reg, u16 val)
 	return epd_write_data(epd, val);
 }
 
-/*
- * epd_read_reg - Read a 16-bit value from an IT8951 register.
- *
- * Sends: CMD_REG_RD → data(reg addr) → read result into *val
- */
+
+
 static int epd_read_reg(struct epd_device *epd, u16 reg, u16 *val)
 {
 	int ret;
@@ -258,22 +197,11 @@ static int epd_read_reg(struct epd_device *epd, u16 reg, u16 *val)
 	return epd_read_data(epd, val);
 }
 
-/* =========================================================================
- * LUT variant detection (static helper)
- * ========================================================================= */
 
-/*
- * epd_detect_lut - Parse dev_info.lut_version and populate variant fields.
- *
- * lut_version is a u16[8] array that holds a null-terminated ASCII string
- * in big-endian 16-bit encoding (each char in the high byte of its word).
- * We cast directly to char* for strncmp since the high bytes of each u16
- * correspond to the ASCII characters in the string on big-endian on-wire data
- * after the SPI read.  In practice Waveshare stores these as packed ASCII
- * byte pairs so a raw strncmp over the byte array works correctly.
- *
- * Priority: M841_TFA2812 and M841_TFA5210 must be checked before plain M841.
- */
+
+
+
+
 static void epd_detect_lut(struct epd_device *epd)
 {
 	const char *lut     = (const char *)epd->dev_info.lut_version;
@@ -288,16 +216,11 @@ static void epd_detect_lut(struct epd_device *epd)
 		epd->lut_variant, epd->a2_mode, epd->needs_4byte_align);
 }
 
-/* =========================================================================
- * Exported functions – hardware lifecycle
- * ========================================================================= */
 
-/*
- * epd_hw_reset - Hard-reset the IT8951 via RST GPIO.
- *
- * Drives RST low for 10 ms, then high, then waits 200 ms for the
- * controller's internal boot sequence, then polls BUSY until ready.
- */
+
+
+
+
 void epd_hw_reset(struct epd_device *epd)
 {
 	gpiod_set_value_cansleep(epd->gpio_rst, 0);
@@ -305,54 +228,37 @@ void epd_hw_reset(struct epd_device *epd)
 	gpiod_set_value_cansleep(epd->gpio_rst, 1);
 	msleep(200);
 
-	/* Best-effort poll; ignore timeout here — init will catch it */
+	 
 	epd_wait_busy(epd);
 }
 
-/*
- * epd_hw_init - Full hardware initialisation sequence.
- *
- * Steps:
- *   1. Hard reset
- *   2. SYS_RUN (wake the controller)
- *   3. GET_DEV_INFO → populate dev_info, img_ram_addr, panel_w/h
- *   4. Enable packed pixel writes (I80CPCR = 1)
- *   5. Set VCOM if different from stored value
- *   6. Detect LUT variant → fill lut_variant, a2_mode, needs_4byte_align
- *
- * Returns 0 on success, negative errno on failure.
- */
+
+
 int epd_hw_init(struct epd_device *epd)
 {
 	struct it8951_dev_info *di = &epd->dev_info;
 	u16 cur_vcom = 0;
 	int ret;
 
-	/* 1. Reset */
+	 
 	epd_hw_reset(epd);
 
-	/* 2. SYS_RUN */
+	 
 	ret = epd_write_cmd(epd, IT8951_CMD_SYS_RUN);
 	if (ret) {
 		dev_err(&epd->spi->dev, "SYS_RUN failed: %d\n", ret);
 		return ret;
 	}
 
-	/* 3. GET_DEV_INFO — reads back a struct it8951_dev_info worth of words */
+	 
 	ret = epd_write_cmd(epd, IT8951_CMD_GET_DEV_INFO);
 	if (ret) {
 		dev_err(&epd->spi->dev, "GET_DEV_INFO cmd failed: %d\n", ret);
 		return ret;
 	}
 
-	/*
-	 * The device returns sizeof(struct it8951_dev_info) / 2 consecutive
-	 * 16-bit words in a single burst (one read preamble + dummy, then the
-	 * data).  epd_read_words stores each word in host byte order, so the
-	 * u16 fields are usable directly and the ASCII fw/lut strings land in
-	 * memory byte-swapped per word — which is exactly what the LUT matcher
-	 * below expects on a little-endian host.
-	 */
+	
+
 	ret = epd_read_words(epd, (u16 *)di, sizeof(*di) / sizeof(u16));
 	if (ret) {
 		dev_err(&epd->spi->dev, "GET_DEV_INFO read failed: %d\n", ret);
@@ -367,7 +273,7 @@ int epd_hw_init(struct epd_device *epd)
 		"IT8951 panel %u×%u img_ram=0x%08x\n",
 		epd->panel_w, epd->panel_h, epd->img_ram_addr);
 
-	/* Sanity-check panel dimensions */
+	 
 	if (!epd->panel_w || !epd->panel_h ||
 	    epd->panel_w > EPD_MAX_WIDTH || epd->panel_h > EPD_MAX_HEIGHT) {
 		dev_err(&epd->spi->dev,
@@ -377,7 +283,7 @@ int epd_hw_init(struct epd_device *epd)
 		return -ENODEV;
 	}
 
-	/* 4. Enable packed pixel writes (I80CPCR bit 0) */
+	 
 	ret = epd_write_reg(epd, IT8951_REG_I80CPCR, 0x0001u);
 	if (ret) {
 		dev_err(&epd->spi->dev,
@@ -385,13 +291,13 @@ int epd_hw_init(struct epd_device *epd)
 		return ret;
 	}
 
-	/* 5. Set VCOM only if it differs from what the hardware already has */
+	 
 	ret = epd_write_cmd(epd, IT8951_CMD_VCOM);
 	if (ret) {
 		dev_err(&epd->spi->dev, "VCOM read cmd failed: %d\n", ret);
 		return ret;
 	}
-	ret = epd_write_data(epd, 0x0000u);  /* arg: 0 = read VCOM */
+	ret = epd_write_data(epd, 0x0000u);   
 	if (ret)
 		return ret;
 	ret = epd_read_data(epd, &cur_vcom);
@@ -410,7 +316,7 @@ int epd_hw_init(struct epd_device *epd)
 			return ret;
 	}
 
-	/* 6. LUT variant detection */
+	 
 	epd_detect_lut(epd);
 
 	epd->initialized = true;
@@ -419,11 +325,8 @@ int epd_hw_init(struct epd_device *epd)
 	return 0;
 }
 
-/*
- * epd_hw_sleep - Send SLEEP command to power down the IT8951.
- *
- * The panel draws ~0 µA in sleep mode. Call epd_hw_wakeup() to resume.
- */
+
+
 void epd_hw_sleep(struct epd_device *epd)
 {
 	int ret;
@@ -433,13 +336,8 @@ void epd_hw_sleep(struct epd_device *epd)
 		dev_err(&epd->spi->dev, "SLEEP command failed: %d\n", ret);
 }
 
-/*
- * epd_hw_wakeup - Wake the IT8951 from sleep.
- *
- * Performs a full hardware reset followed by SYS_RUN so the controller
- * re-initialises its internal state machine.  The caller is responsible
- * for re-sending any display content if needed.
- */
+
+
 void epd_hw_wakeup(struct epd_device *epd)
 {
 	int ret;
@@ -452,24 +350,17 @@ void epd_hw_wakeup(struct epd_device *epd)
 		return;
 	}
 
-	/* Re-enable packed pixel writes; the register is lost across reset. */
+	 
 	ret = epd_write_reg(epd, IT8951_REG_I80CPCR, 0x0001u);
 	if (ret)
 		dev_err(&epd->spi->dev, "I80CPCR restore after wakeup failed: %d\n", ret);
 }
 
-/* =========================================================================
- * Exported functions – display configuration
- * ========================================================================= */
 
-/*
- * epd_set_vcom - Program the VCOM voltage into the IT8951.
- *
- * IT8951 VCOM command sequence: CMD_VCOM → write arg 0x0001 (write mode)
- * → write VCOM value in millivolts (positive integer, e.g. 2300 for -2.30 V).
- *
- * Returns 0 on success, negative errno on error.
- */
+
+
+
+
 int epd_set_vcom(struct epd_device *epd, u16 vcom_mv)
 {
 	int ret;
@@ -480,7 +371,7 @@ int epd_set_vcom(struct epd_device *epd, u16 vcom_mv)
 		return ret;
 	}
 
-	ret = epd_write_data(epd, 0x0001u);  /* arg: 1 = write VCOM */
+	ret = epd_write_data(epd, 0x0001u);   
 	if (ret)
 		return ret;
 
@@ -495,14 +386,8 @@ int epd_set_vcom(struct epd_device *epd, u16 vcom_mv)
 	return 0;
 }
 
-/*
- * epd_enhance_driving - Enable enhanced driving capability.
- *
- * Writes IT8951_ENHANCE_DRV_VAL to IT8951_REG_ENHANCE_DRV.
- * Required for some panels at high refresh rates to stabilise waveforms.
- *
- * Returns 0 on success, negative errno on error.
- */
+
+
 int epd_enhance_driving(struct epd_device *epd)
 {
 	int ret;
@@ -514,14 +399,8 @@ int epd_enhance_driving(struct epd_device *epd)
 	return ret;
 }
 
-/*
- * epd_wait_display_ready - Poll LUTAFSR until the display engine is idle.
- *
- * LUTAFSR is non-zero while a display update waveform is in progress.
- * We wait up to 10 seconds (display updates can be slow in INIT/GC16 mode).
- *
- * Returns 0 when idle, -ETIMEDOUT if still busy after 10 s.
- */
+
+
 int epd_wait_display_ready(struct epd_device *epd)
 {
 	u64 deadline = ktime_get_ns() + (u64)10 * NSEC_PER_SEC;
@@ -550,24 +429,11 @@ int epd_wait_display_ready(struct epd_device *epd)
 	} while (true);
 }
 
-/* =========================================================================
- * Exported functions – image loading and display
- * ========================================================================= */
 
-/*
- * epd_load_image_1bpp - Load a 1-bpp pixel region into IT8951 DRAM.
- *
- * Uses IT8951's hardware 1bpp packed mode: source bytes are sent using the
- * 8BPP SPI container format with Area_X=x/8 and Area_W=w/8.  Each byte
- * carries 8 packed 1bpp pixels; IT8951 expands them via BGVR when the caller
- * subsequently enables UP1SR 1bpp mode (see epd_display_area_1bpp).
- *
- * Coordinates are in controller space.  Any horizontal mirroring must be
- * applied by the caller (stage 3 in epd8951hat_refresh.c) before calling here.
- * x and w must be multiples of 8 (Area_X and Area_W are in units of 8 pixels).
- *
- * Returns 0 on success, negative errno on error.
- */
+
+
+
+
 int epd_load_image_1bpp(struct epd_device *epd,
 			 const u8 *fb_base, u32 fb_stride,
 			 u16 x, u16 y, u16 w, u16 h)
@@ -588,7 +454,7 @@ int epd_load_image_1bpp(struct epd_device *epd,
 		return -EINVAL;
 	}
 
-	/* 1. Set IT8951 image RAM target address. */
+	 
 	ret = epd_write_reg(epd, IT8951_REG_LISAR + 2, (u16)(base_addr >> 16));
 	if (ret)
 		return ret;
@@ -596,12 +462,12 @@ int epd_load_image_1bpp(struct epd_device *epd,
 	if (ret)
 		return ret;
 
-	/* 2. LD_IMG_AREA: 8BPP container, packed-1bpp area in 8-pixel units. */
+	 
 	ret = epd_write_cmd(epd, IT8951_CMD_LD_IMG_AREA);
 	if (ret)
 		return ret;
 
-	args[0] = (u16)((IT8951_ENDIAN_BIG << 8) |
+	args[0] = (u16)((IT8951_ENDIAN_LITTLE << 8) |
 			(IT8951_PIX_FMT_8BPP  << 4) |
 			IT8951_ROTATE_0);
 	args[1] = x / 8;
@@ -615,26 +481,23 @@ int epd_load_image_1bpp(struct epd_device *epd,
 			return ret;
 	}
 
-	/* 3. Pack source rows into spi_buf. */
+	 
 	dst = epd->spi_buf;
 	for (row = 0; row < (int)h; row++) {
 		const u8 *src = fb_base + (size_t)((int)y + row) * fb_stride + x / 8;
 
-		for (int j = 0; j < (int)row_bytes; j++) {
-			dst[j] = bitrev8(src[row_bytes - 1 - j]);
-		}
-
+		memcpy(dst, src, row_bytes);
 		dst += row_bytes;
 	}
 	if (out_bytes_dma > out_bytes)
 		epd->spi_buf[out_bytes] = 0xFFu;
 
-	/* 4. Bulk-send: preamble + all packed bytes in one CS frame. */
+	 
 	ret = epd_write_data_bulk(epd, epd->spi_buf, out_bytes_dma);
 	if (ret)
 		return ret;
 
-	/* 5. LD_IMG_END. */
+	 
 	ret = epd_write_cmd(epd, IT8951_CMD_LD_IMG_END);
 	if (ret)
 		dev_err(&epd->spi->dev, "LD_IMG_END failed: %d\n", ret);
@@ -642,15 +505,8 @@ int epd_load_image_1bpp(struct epd_device *epd,
 	return ret;
 }
 
-/*
- * epd_display_area - Send CMD_DPY_AREA to trigger a waveform update.
- *
- * All coordinates are in controller space.  Does NOT wait for the waveform
- * to complete; callers that need sequencing use epd_wait_display_ready().
- * For 1bpp content use epd_display_area_1bpp() which manages UP1SR/BGVR.
- *
- * Returns 0 on success, negative errno on error.
- */
+
+
 int epd_display_area(struct epd_device *epd, u16 x, u16 y, u16 w, u16 h,
 		     u8 mode)
 {
@@ -662,7 +518,7 @@ int epd_display_area(struct epd_device *epd, u16 x, u16 y, u16 w, u16 h,
 	if (ret)
 		return ret;
 
-	/* Coordinates are in controller space; no mirror adjustment needed. */
+	 
 	args[0] = x;
 	args[1] = y;
 	args[2] = w;
@@ -686,35 +542,15 @@ int epd_display_area(struct epd_device *epd, u16 x, u16 y, u16 w, u16 h,
 	return 0;
 }
 
-/*
- * epd_display_area_1bpp - Trigger a waveform update for 1bpp image content.
- *
- * Wraps epd_display_area with the UP1SR 1bpp-expansion and BGVR setup that
- * IT8951 requires to correctly drive the panel from packed 1bpp DRAM data
- * (as loaded by epd_load_image_1bpp).
- *
- * Sequence:
- *   1. Read-modify-write UP1SR+2 to set the 1bpp-expansion enable bit
- *   2. Write BGVR with foreground=black (0x00) / background=white (0xF0)
- *   3. Send DPY_AREA trigger (via epd_display_area)
- *   4. Wait for the waveform to complete (LUTAFSR → 0)
- *   5. Read-modify-write UP1SR+2 to clear the enable bit
- *
- * The wait in step 4 is mandatory: the UP1SR bit must stay set while the
- * waveform is running, and we must clear it before the next image load so
- * that subsequent INIT-mode clears (which load 4bpp data) are unaffected.
- *
- * The UP1SR bit is always restored on exit, even if step 3 or 4 fails.
- *
- * Returns 0 on success, negative errno on error.
- */
+
+
 int epd_display_area_1bpp(struct epd_device *epd, u16 x, u16 y, u16 w, u16 h,
 			   u8 mode)
 {
 	u16 up1sr2;
 	int ret, ret2;
 
-	/* 1. Enable 1bpp display expansion in UP1SR+2. */
+	 
 	ret = epd_read_reg(epd, IT8951_REG_UP1SR + 2, &up1sr2);
 	if (ret) {
 		dev_err(&epd->spi->dev,
@@ -729,7 +565,7 @@ int epd_display_area_1bpp(struct epd_device *epd, u16 x, u16 y, u16 w, u16 h,
 		return ret;
 	}
 
-	/* 2. Set foreground/background gray levels for 1bpp expansion. */
+	 
 	ret = epd_write_reg(epd, IT8951_REG_BGVR, IT8951_BGVR_DEFAULT);
 	if (ret) {
 		dev_err(&epd->spi->dev,
@@ -737,19 +573,19 @@ int epd_display_area_1bpp(struct epd_device *epd, u16 x, u16 y, u16 w, u16 h,
 		goto restore_up1sr;
 	}
 
-	/* 3. Fire the display trigger. */
+	 
 	ret = epd_display_area(epd, x, y, w, h, mode);
 	if (ret)
 		goto restore_up1sr;
 
-	/* 4. Wait for the waveform to complete before releasing 1bpp mode. */
+	 
 	ret = epd_wait_display_ready(epd);
 	if (ret)
 		dev_err(&epd->spi->dev,
 			"display_area_1bpp: waveform timeout: %d\n", ret);
 
 restore_up1sr:
-	/* 5. Always restore UP1SR+2 regardless of earlier errors. */
+	 
 	ret2 = epd_read_reg(epd, IT8951_REG_UP1SR + 2, &up1sr2);
 	if (!ret2)
 		epd_write_reg(epd, IT8951_REG_UP1SR + 2,
@@ -761,35 +597,20 @@ restore_up1sr:
 	return ret;
 }
 
-/*
- * epd_full_clear - Clear the entire panel to white using INIT mode.
- *
- * Sends an all-zero 4bpp image (0x00 = white) covering the full panel,
- * then triggers a full-screen INIT refresh to erase any A2-mode ghosting.
- *
- * This function bypasses epd_load_image_1bpp() and drives the SPI protocol
- * directly to avoid spi_buf aliasing: epd_load_image_1bpp() would write its
- * 4bpp output into spi_buf, so we cannot use spi_buf as its 1bpp source.
- *
- * Returns 0 on success, negative errno on error.
- */
+
+
 int epd_full_clear(struct epd_device *epd)
 {
 	u16 args[5];
 	u32 base_addr = epd->img_ram_addr;
-	/*
-	 * 4bpp: 2 pixels per byte.  Full panel with even width (already ensured
-	 * by the panel detection which sanity-checks against EPD_MAX_WIDTH).
-	 */
+	
+
 	size_t out_bytes = (size_t)(epd->panel_w / 2) * epd->panel_h;
 	size_t i;
 	int ret;
 
-	/*
-	 * Wait for any in-progress waveform before writing to image DRAM.
-	 * epd_full_clear is called both from probe (no prior waveform) and from
-	 * epd_do_refresh ghosting-recovery (a waveform may be active).
-	 */
+	
+
 	ret = epd_wait_display_ready(epd);
 	if (ret) {
 		dev_err(&epd->spi->dev,
@@ -804,10 +625,10 @@ int epd_full_clear(struct epd_device *epd)
 		return -EINVAL;
 	}
 
-	/* 0xFF = 4bpp white (nibble 0xF = white pixel); INIT ignores data anyway */
+	 
 	memset(epd->spi_buf, 0xFF, out_bytes);
 
-	/* Set LISAR */
+	 
 	ret = epd_write_reg(epd, IT8951_REG_LISAR + 2, (u16)(base_addr >> 16));
 	if (ret)
 		return ret;
@@ -815,7 +636,7 @@ int epd_full_clear(struct epd_device *epd)
 	if (ret)
 		return ret;
 
-	/* LD_IMG_AREA for full panel */
+	 
 	ret = epd_write_cmd(epd, IT8951_CMD_LD_IMG_AREA);
 	if (ret)
 		return ret;
@@ -834,7 +655,7 @@ int epd_full_clear(struct epd_device *epd)
 			return ret;
 	}
 
-	/* Bulk-send the all-white 4bpp buffer (preamble + payload, one CS frame) */
+	 
 	ret = epd_write_data_bulk(epd, epd->spi_buf, out_bytes);
 	if (ret)
 		return ret;
@@ -843,7 +664,7 @@ int epd_full_clear(struct epd_device *epd)
 	if (ret)
 		return ret;
 
-	/* INIT waveform erases all pixel memory (removes ghosting) */
+	 
 	ret = epd_display_area(epd, 0, 0, epd->panel_w, epd->panel_h,
 			       EPD_MODE_INIT);
 	if (ret) {
@@ -851,11 +672,8 @@ int epd_full_clear(struct epd_device *epd)
 		return ret;
 	}
 
-	/*
-	 * Wait for the INIT waveform to complete before returning.  epd_display_area
-	 * no longer waits internally, so without this the caller (e.g. probe) would
-	 * return while the waveform is still driving the panel.
-	 */
+	
+
 	ret = epd_wait_display_ready(epd);
 	if (ret)
 		dev_err(&epd->spi->dev,

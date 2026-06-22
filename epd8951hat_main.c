@@ -1,32 +1,6 @@
-// SPDX-License-Identifier: GPL-2.0
-/*
- * epd8951hat_main.c  –  IT8951 e-Paper HAT Linux framebuffer driver
- *
- * Registers a /dev/fbN device over a SPI-connected Waveshare IT8951
- * e-Paper controller.  Key behaviours:
- *
- *   • Tile-based dirty tracking; only changed tiles are sent to hardware.
- *   • If ≥ 90 % of tiles dirty → full INIT + GC16 refresh.
- *   • Small writes (≤ 32×32 px) are tagged as cursor updates and flushed with
- *     a 5 ms priority delay instead of the normal 50 ms coalescing window.
- *   • After EPD_A2_GHOSTING_LIMIT A2 refreshes → automatic INIT clear.
- *   • Double-buffering (fb_vaddr vs screen_shadow) skips SPI transfers when
- *     tiles are flagged dirty but the content did not actually change.
- *
- * GPIO/SPI setup:
- *   The IT8951 latches a transaction only while CS stays asserted across the
- *   whole "preamble word + payload" sequence.  The SPI/protocol layer keeps
- *   each transaction inside a single spi_message (see epd8951hat_spi.c), so the
- *   SPI core's per-message chip-select (native CE0 / the RPi cs-gpio) holds CS
- *   low for the entire transaction — no separate manual CS GPIO is needed.
- *
- *   Required device-tree properties on the SPI child node:
- *     rst-gpios  = <&gpio 17 GPIO_ACTIVE_HIGH>;   // RST
- *     busy-gpios = <&gpio 24 GPIO_ACTIVE_HIGH>;   // BUSY
- *     reg        = <0>;                           // CS0, driven by SPI core
- *
- *   Or pass gpio_rst/gpio_busy as module parameters to override.
- */
+
+
+
 
 #include <linux/delay.h>
 #include <linux/device.h>
@@ -49,9 +23,8 @@
 
 #include "epd8951hat.h"
 
-/* =========================================================================
- * Module parameters
- * ========================================================================= */
+
+
 
 static int  vcom_mv_param = EPD_DEFAULT_VCOM;
 module_param_named(vcom, vcom_mv_param, int, 0644);
@@ -69,7 +42,7 @@ static bool mirror_x_param = true;
 module_param_named(mirror_x, mirror_x_param, bool, 0644);
 MODULE_PARM_DESC(mirror_x, "Horizontally mirror output (default on; required for the 10.3\" panel orientation)");
 
-/* GPIO fallback numbers (used when DT properties absent) */
+ 
 static int gpio_rst_num  = 17;
 static int gpio_busy_num = 24;
 module_param_named(gpio_rst,  gpio_rst_num,  int, 0444);
@@ -77,13 +50,8 @@ module_param_named(gpio_busy, gpio_busy_num, int, 0444);
 MODULE_PARM_DESC(gpio_rst,  "RST  GPIO number (default 17, fallback if DT absent)");
 MODULE_PARM_DESC(gpio_busy, "BUSY GPIO number (default 24, fallback if DT absent)");
 
-/* =========================================================================
- * GPIO acquisition helper
- *
- * Try device-tree lookup first; fall back to a legacy GPIO number supplied
- * via module parameters.  The caller owns the devm lifecycle for DT GPIOs
- * and must call gpiod_put() for legacy ones on error.
- * ========================================================================= */
+
+
 static struct gpio_desc *epd_get_gpio(struct device *dev,
 				      const char *dt_name, int fallback_num,
 				      enum gpiod_flags flags)
@@ -94,9 +62,9 @@ static struct gpio_desc *epd_get_gpio(struct device *dev,
 	if (IS_ERR(gd))
 		return gd;
 	if (gd)
-		return gd;   /* found in DT */
+		return gd;    
 
-	/* Not in DT – use the supplied GPIO number */
+	 
 	if (fallback_num < 0) {
 		dev_err(dev, "GPIO '%s' not in DT and no fallback number\n",
 			dt_name);
@@ -127,15 +95,11 @@ static struct gpio_desc *epd_get_gpio(struct device *dev,
 	return gd;
 }
 
-/* =========================================================================
- * Framebuffer operations – drawing callbacks
- * ========================================================================= */
 
-/*
- * epd_fb_check_var – Validate a requested video mode.
- *
- * We only support the panel's native resolution at 1 bpp.
- */
+
+
+
+
 static int epd_fb_check_var(struct fb_var_screeninfo *var,
 			     struct fb_info *info)
 {
@@ -164,22 +128,20 @@ static int epd_fb_check_var(struct fb_var_screeninfo *var,
 	return 0;
 }
 
-/*
- * epd_fb_set_par – Apply a new mode (no-op: we don't support mode changes).
- */
+
+
 static int epd_fb_set_par(struct fb_info *info)
 {
 	return 0;
 }
 
-/*
- * epd_fb_setcolreg – Mono pseudo-colour register (required by fbcon).
- */
+
+
 static int epd_fb_setcolreg(unsigned int regno, unsigned int red,
 			     unsigned int green, unsigned int blue,
 			     unsigned int transp, struct fb_info *info)
 {
-	/* 1bpp: two entries – 0=background (white), 1=foreground (black) */
+	 
 	if (regno > 1)
 		return -EINVAL;
 
@@ -187,9 +149,8 @@ static int epd_fb_setcolreg(unsigned int regno, unsigned int red,
 	return 0;
 }
 
-/*
- * epd_fb_blank – Power the display on/off.
- */
+
+
 static int epd_fb_blank(int blank_mode, struct fb_info *info)
 {
 	struct epd_device *epd = info->par;
@@ -213,7 +174,7 @@ static int epd_fb_blank(int blank_mode, struct fb_info *info)
 			epd->suspended = false;
 			spin_unlock_irqrestore(&epd->state_lock, flags);
 			epd_hw_wakeup(epd);
-			/* Redraw everything after wakeup */
+			 
 			epd_dirty_mark_all(&epd->dirty,
 					   epd->panel_w, epd->panel_h);
 			epd_schedule_refresh(epd, false);
@@ -228,12 +189,8 @@ static int epd_fb_blank(int blank_mode, struct fb_info *info)
 	return 0;
 }
 
-/*
- * epd_fb_write – Handle direct writes to /dev/fbN.
- *
- * Copies user data into the framebuffer, marks the affected rows dirty,
- * and schedules a refresh.
- */
+
+
 static ssize_t epd_fb_write(struct fb_info *info, const char __user *buf,
 			    size_t count, loff_t *ppos)
 {
@@ -242,12 +199,12 @@ static ssize_t epd_fb_write(struct fb_info *info, const char __user *buf,
 	unsigned long offset = *ppos;
 	int y0, y1;
 
-	/* Let the standard helper do the copy + advance ppos */
+	 
 	ret = fb_sys_write(info, buf, count, ppos);
 	if (ret <= 0)
 		return ret;
 
-	/* Convert byte offset range to row range */
+	 
 	y0 = (int)(offset / epd->fb_stride);
 	y1 = (int)(((unsigned long)offset + (unsigned long)ret - 1) /
 		   epd->fb_stride);
@@ -264,13 +221,8 @@ static ssize_t epd_fb_write(struct fb_info *info, const char __user *buf,
 	return ret;
 }
 
-/*
- * epd_fb_fillrect – Fill a rectangle with a solid colour.
- *
- * Detecting large white fills (e.g. terminal scrolling "clear old text")
- * is handled implicitly: the tile tracker sees exactly which tiles changed
- * and the double-buffer comparison confirms only the actually-changed ones.
- */
+
+
 static void epd_fb_fillrect(struct fb_info *info,
 			     const struct fb_fillrect *rect)
 {
@@ -286,12 +238,8 @@ static void epd_fb_fillrect(struct fb_info *info,
 	epd_schedule_refresh(epd, false);
 }
 
-/*
- * epd_fb_copyarea – Copy a rectangular area (used for terminal scrolling).
- *
- * Marks both source and destination regions dirty so the display correctly
- * erases the old content and draws the new position.
- */
+
+
 static void epd_fb_copyarea(struct fb_info *info,
 			     const struct fb_copyarea *area)
 {
@@ -299,13 +247,13 @@ static void epd_fb_copyarea(struct fb_info *info,
 
 	sys_copyarea(info, area);
 
-	/* Destination region (where content lands) */
+	 
 	epd_dirty_mark(&epd->dirty,
 		       (int)area->dx, (int)area->dy,
 		       (int)area->width, (int)area->height,
 		       (int)epd->panel_w, (int)epd->panel_h);
 
-	/* Source region (now vacated; usually filled with a subsequent fillrect) */
+	 
 	epd_dirty_mark(&epd->dirty,
 		       (int)area->sx, (int)area->sy,
 		       (int)area->width, (int)area->height,
@@ -314,14 +262,8 @@ static void epd_fb_copyarea(struct fb_info *info,
 	epd_schedule_refresh(epd, false);
 }
 
-/*
- * epd_fb_imageblit – Blit a pixel image (used for characters and cursor).
- *
- * Small images (≤ 32×32 pixels) are flagged as cursor/priority updates so
- * they appear on screen within ~5 ms rather than waiting the full 50 ms
- * coalescing window.  This ensures the user's cursor position is always
- * up-to-date even during rapid mouse movement.
- */
+
+
 static void epd_fb_imageblit(struct fb_info *info, const struct fb_image *image)
 {
 	struct epd_device *epd = info->par;
@@ -338,13 +280,8 @@ static void epd_fb_imageblit(struct fb_info *info, const struct fb_image *image)
 	epd_schedule_refresh(epd, priority);
 }
 
-/*
- * epd_fb_sync – Flush all pending refreshes synchronously.
- *
- * Called by userspace via ioctl(fd, FBIO_WAITFORVSYNC) or by the kernel
- * before a power state change.  Cancels pending work and runs the refresh
- * inline so the display is up-to-date before returning.
- */
+
+
 static int epd_fb_sync(struct fb_info *info)
 {
 	struct epd_device *epd = info->par;
@@ -355,9 +292,8 @@ static int epd_fb_sync(struct fb_info *info)
 	return 0;
 }
 
-/* =========================================================================
- * fb_deferred_io callback – triggered when mmap'd pages are written
- * ========================================================================= */
+
+
 
 static void epd_deferred_io(struct fb_info *info, struct list_head *pagereflist)
 {
@@ -375,9 +311,8 @@ static void epd_deferred_io(struct fb_info *info, struct list_head *pagereflist)
 	epd_schedule_refresh(epd, false);
 }
 
-/* =========================================================================
- * fb_ops and fb_deferred_io tables
- * ========================================================================= */
+
+
 
 static const struct fb_ops epd_fb_ops = {
 	.owner          = THIS_MODULE,
@@ -393,9 +328,8 @@ static const struct fb_ops epd_fb_ops = {
 	.fb_sync        = epd_fb_sync,
 };
 
-/* =========================================================================
- * SPI driver probe / remove
- * ========================================================================= */
+
+
 
 static int epd_probe(struct spi_device *spi)
 {
@@ -404,7 +338,7 @@ static int epd_probe(struct spi_device *spi)
 	struct fb_deferred_io *defio;
 	int ret;
 
-	/* ---- Allocate fb_info with epd_device embedded in par ------------ */
+	 
 	info = framebuffer_alloc(sizeof(struct epd_device), &spi->dev);
 	if (!info)
 		return -ENOMEM;
@@ -414,13 +348,13 @@ static int epd_probe(struct spi_device *spi)
 	epd->fb_info = info;
 	spin_lock_init(&epd->state_lock);
 
-	/* Apply module params */
+	 
 	epd->vcom_mv         = (u16)clamp(vcom_mv_param, 0, 5000);
 	epd->rotation        = clamp(rotation_param, 0, 3);
 	epd->mirror_x        = mirror_x_param;
 	epd->enhance_driving = enhance_drv_param;
 
-	/* ---- GPIO setup --------------------------------------------------- */
+	 
 	epd->gpio_rst = epd_get_gpio(&spi->dev, "rst", gpio_rst_num,
 				     GPIOD_OUT_HIGH);
 	if (IS_ERR(epd->gpio_rst)) {
@@ -437,17 +371,17 @@ static int epd_probe(struct spi_device *spi)
 		goto err_free_info;
 	}
 
-	/* ---- Configure SPI bus -------------------------------------------- */
+	 
 	spi->mode          = SPI_MODE_0;
 	spi->bits_per_word = 8;
-	spi->max_speed_hz  = 8000000;   /* 8 MHz; safe for RPi 4 (32× divider) */
+	spi->max_speed_hz  = 8000000;    
 	ret = spi_setup(spi);
 	if (ret) {
 		dev_err(&spi->dev, "spi_setup failed: %d\n", ret);
 		goto err_free_info;
 	}
 
-	/* ---- Allocate SPI scratch buffer (DMA-capable) -------------------- */
+	 
 	epd->spi_buf_size = EPD_SPI_BUF_SIZE;
 	epd->spi_buf = kzalloc(epd->spi_buf_size, GFP_KERNEL);
 	if (!epd->spi_buf) {
@@ -455,7 +389,7 @@ static int epd_probe(struct spi_device *spi)
 		goto err_free_info;
 	}
 
-	/* ---- Initialise IT8951 hardware ----------------------------------- */
+	 
 	ret = epd_hw_init(epd);
 	if (ret) {
 		dev_err(&spi->dev, "hardware init failed: %d\n", ret);
@@ -469,7 +403,7 @@ static int epd_probe(struct spi_device *spi)
 				 "enhance_driving failed (non-fatal): %d\n", ret);
 	}
 
-	/* ---- Allocate framebuffer memory ---------------------------------- */
+	 
 	epd->fb_stride = DIV_ROUND_UP((u32)epd->panel_w, 8u);
 	epd->fb_size   = (size_t)epd->fb_stride * epd->panel_h;
 
@@ -485,7 +419,7 @@ static int epd_probe(struct spi_device *spi)
 		goto err_free_fb;
 	}
 
-	/* ---- Set up fb_info ----------------------------------------------- */
+	 
 	info->fbops        = &epd_fb_ops;
 	info->screen_base  = (char __iomem *)epd->fb_vaddr;
 	info->screen_size  = epd->fb_size;
@@ -496,16 +430,16 @@ static int epd_probe(struct spi_device *spi)
 		goto err_free_shadow;
 	}
 
-	/* fix screeninfo */
+	 
 	strscpy(info->fix.id, "epd8951hat", sizeof(info->fix.id));
 	info->fix.type        = FB_TYPE_PACKED_PIXELS;
-	info->fix.visual      = FB_VISUAL_MONO01; /* 1 = black (foreground) */
+	info->fix.visual      = FB_VISUAL_MONO01;  
 	info->fix.line_length = epd->fb_stride;
-	info->fix.smem_start  = 0;               /* vmalloc: no physical addr */
+	info->fix.smem_start  = 0;                
 	info->fix.smem_len    = epd->fb_size;
 	info->fix.accel       = FB_ACCEL_NONE;
 
-	/* var screeninfo */
+	 
 	info->var.xres         = epd->panel_w;
 	info->var.yres         = epd->panel_h;
 	info->var.xres_virtual = epd->panel_w;
@@ -518,7 +452,7 @@ static int epd_probe(struct spi_device *spi)
 	info->var.transp = (struct fb_bitfield){ .offset = 0, .length = 0 };
 	info->var.activate = FB_ACTIVATE_NOW;
 
-	/* ---- Set up fb_deferred_io ---------------------------------------- */
+	 
 	defio = devm_kzalloc(&spi->dev, sizeof(*defio), GFP_KERNEL);
 	if (!defio) {
 		ret = -ENOMEM;
@@ -530,13 +464,13 @@ static int epd_probe(struct spi_device *spi)
 	info->fbdefio = defio;
 	fb_deferred_io_init(info);
 
-	/* ---- Initialise dirty tracking and refresh subsystem -------------- */
+	 
 	epd_dirty_init(&epd->dirty);
 	ret = epd_refresh_init(epd);
 	if (ret)
 		goto err_defio_cleanup;
 
-	/* ---- Register framebuffer ----------------------------------------- */
+	 
 	ret = register_framebuffer(info);
 	if (ret) {
 		dev_err(&spi->dev, "register_framebuffer failed: %d\n", ret);
@@ -545,7 +479,7 @@ static int epd_probe(struct spi_device *spi)
 
 	spi_set_drvdata(spi, epd);
 
-	/* ---- Initial display clear ---------------------------------------- */
+	 
 	ret = epd_full_clear(epd);
 	if (ret)
 		dev_warn(&spi->dev, "initial clear failed (non-fatal): %d\n", ret);
@@ -579,15 +513,15 @@ static void epd_remove(struct spi_device *spi)
 	struct epd_device *epd = spi_get_drvdata(spi);
 	struct fb_info *info   = epd->fb_info;
 
-	/* Stop all pending refreshes */
+	 
 	epd_refresh_cleanup(epd);
 
-	/* Unregister framebuffer (wakes any waiters, disables mmap) */
+	 
 	unregister_framebuffer(info);
 
 	fb_deferred_io_cleanup(info);
 
-	/* Put display to sleep to save power */
+	 
 	epd_hw_sleep(epd);
 
 	kfree(epd->screen_shadow);
@@ -599,25 +533,23 @@ static void epd_remove(struct spi_device *spi)
 	dev_info(&spi->dev, "epd8951hat: removed\n");
 }
 
-/* =========================================================================
- * SPI device ID tables (DT + legacy)
- * ========================================================================= */
+
+
 
 static const struct of_device_id epd_of_match[] = {
 	{ .compatible = "waveshare,it8951" },
-	{ /* sentinel */ }
+	{   }
 };
 MODULE_DEVICE_TABLE(of, epd_of_match);
 
 static const struct spi_device_id epd_spi_id[] = {
 	{ "it8951", 0 },
-	{ /* sentinel */ }
+	{   }
 };
 MODULE_DEVICE_TABLE(spi, epd_spi_id);
 
-/* =========================================================================
- * Power management (optional suspend/resume hooks)
- * ========================================================================= */
+
+
 
 #ifdef CONFIG_PM_SLEEP
 
@@ -626,7 +558,7 @@ static int epd_suspend(struct device *dev)
 	struct spi_device  *spi = to_spi_device(dev);
 	struct epd_device  *epd = spi_get_drvdata(spi);
 
-	/* Flush any pending update before sleeping */
+	 
 	epd_fb_sync(epd->fb_info);
 	epd_hw_sleep(epd);
 	return 0;
@@ -639,7 +571,7 @@ static int epd_resume(struct device *dev)
 
 	epd_hw_wakeup(epd);
 
-	/* Reload the current framebuffer content after wakeup */
+	 
 	epd_dirty_mark_all(&epd->dirty, epd->panel_w, epd->panel_h);
 	epd_schedule_refresh(epd, false);
 	return 0;
@@ -650,11 +582,10 @@ static SIMPLE_DEV_PM_OPS(epd_pm_ops, epd_suspend, epd_resume);
 
 #else
 #define EPD_PM_OPS NULL
-#endif /* CONFIG_PM_SLEEP */
+#endif  
 
-/* =========================================================================
- * SPI driver registration
- * ========================================================================= */
+
+
 
 static struct spi_driver epd_spi_driver = {
 	.driver = {

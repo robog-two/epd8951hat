@@ -1,1 +1,0 @@
-savedcmd_/home/robog/Documents/Code/epd8951hat/Module.symvers :=  scripts/mod/modpost -M -m -a      -o /home/robog/Documents/Code/epd8951hat/Module.symvers -T /home/robog/Documents/Code/epd8951hat/modules.order -i Module.symvers -e 

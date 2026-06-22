@@ -1,24 +1,6 @@
-// SPDX-License-Identifier: GPL-2.0
-/*
- * epd8951hat_drv.c  –  IT8951 e-Paper HAT DRM/KMS driver
- *
- * Registers a DRM device (/dev/dri/cardN) over a SPI-connected Waveshare
- * IT8951 e-Paper controller, using the simple display pipe + GEM SHMEM stack.
- *
- * Architecture:
- *   Userspace commits XRGB8888 framebuffers via the atomic KMS interface.
- *   The simple-pipe .update() callback stores the latest framebuffer and
- *   schedules a workqueue item.  The worker applies Floyd-Steinberg dithering
- *   (XRGB8888 → 1bpp) into epd->mono_buf, then calls epd_do_refresh() which
- *   loads the full panel and fires an A2 waveform via the IT8951 SPI layer.
- *
- *   drm_fbdev_shmem_setup() provides /dev/fb0 + fbcon emulation at no cost.
- *
- * Device-tree properties on the SPI child node:
- *   rst-gpios  = <&gpio 17 GPIO_ACTIVE_HIGH>;
- *   busy-gpios = <&gpio 24 GPIO_ACTIVE_HIGH>;
- *   reg        = <0>;   // CS0, driven by SPI core
- */
+
+
+
 
 #include <linux/delay.h>
 #include <linux/device.h>
@@ -57,9 +39,8 @@
 #include "epd8951hat.h"
 #include "epd8951hat_pipeline.h"
 
-/* =========================================================================
- * Module parameters
- * ========================================================================= */
+
+
 
 static int  vcom_mv_param = EPD_DEFAULT_VCOM;
 module_param_named(vcom, vcom_mv_param, int, 0644);
@@ -84,9 +65,8 @@ module_param_named(gpio_busy, gpio_busy_num, int, 0444);
 MODULE_PARM_DESC(gpio_rst,  "RST GPIO number fallback (default 17)");
 MODULE_PARM_DESC(gpio_busy, "BUSY GPIO number fallback (default 24)");
 
-/* =========================================================================
- * GPIO acquisition helper
- * ========================================================================= */
+
+
 
 static struct gpio_desc *epd_get_gpio(struct device *dev,
 				       const char *dt_name, int fallback_num,
@@ -128,9 +108,8 @@ static struct gpio_desc *epd_get_gpio(struct device *dev,
 	return gd;
 }
 
-/* =========================================================================
- * DRM connector
- * ========================================================================= */
+
+
 
 static int epd_connector_get_modes(struct drm_connector *connector)
 {
@@ -156,14 +135,8 @@ static const struct drm_connector_funcs epd_connector_funcs = {
 	.atomic_destroy_state   = drm_atomic_helper_connector_destroy_state,
 };
 
-/* =========================================================================
- * Floyd-Steinberg dithering: XRGB8888 → 1bpp mono_buf
- *
- * Processes the full panel using two error-accumulation rows.  Errors are
- * stored pre-scaled by 16 and divided on read, keeping all arithmetic in
- * integer.  DRM_FORMAT_XRGB8888 memory layout: byte[0]=B, [1]=G, [2]=R.
- * Output convention: bit=1 → black (matches MONO01 / IT8951 BGVR 0x00F0).
- * ========================================================================= */
+
+
 
 static void epd_dither_xrgb8888(struct epd_device *epd,
 				  const void *src, u32 src_pitch)
@@ -172,12 +145,8 @@ static void epd_dither_xrgb8888(struct epd_device *epd,
 				src, src_pitch, epd->mono_buf);
 }
 
-/* =========================================================================
- * Refresh worker
- *
- * Dithers the pending XRGB8888 framebuffer to mono_buf, then hands off to
- * epd_do_refresh() for the SPI upload and A2 waveform trigger.
- * ========================================================================= */
+
+
 
 static void epd_refresh_work_fn(struct work_struct *work)
 {
@@ -221,15 +190,14 @@ static void epd_refresh_work_fn(struct work_struct *work)
 	epd_do_refresh(epd);
 }
 
-/* =========================================================================
- * Simple display pipe callbacks
- * ========================================================================= */
+
+
 
 static int epd_pipe_check(struct drm_simple_display_pipe *pipe,
 			   struct drm_plane_state *plane_state,
 			   struct drm_crtc_state *crtc_state)
 {
-	/* No hardware vblank; DRM core will synthesise the event. */
+	 
 	crtc_state->no_vblank = true;
 	return 0;
 }
@@ -268,7 +236,7 @@ static void epd_pipe_disable(struct drm_simple_display_pipe *pipe)
 	epd->pipe_enabled = false;
 	cancel_work_sync(&epd->refresh_work);
 
-	/* Drop any pending framebuffer reference */
+	 
 	{
 		unsigned long flags;
 		struct drm_framebuffer *fb;
@@ -296,7 +264,7 @@ static void epd_pipe_update(struct drm_simple_display_pipe *pipe,
 	if (!pipe->crtc.state->active || !state->fb)
 		return;
 
-	/* Latest frame wins; drop any pending frame we haven't rendered yet. */
+	 
 	spin_lock_irqsave(&epd->pending_lock, flags);
 	if (epd->pending_fb)
 		drm_framebuffer_put(epd->pending_fb);
@@ -314,9 +282,8 @@ static const struct drm_simple_display_pipe_funcs epd_pipe_funcs = {
 	.update  = epd_pipe_update,
 };
 
-/* =========================================================================
- * DRM mode config and driver
- * ========================================================================= */
+
+
 
 static const struct drm_mode_config_funcs epd_mode_config_funcs = {
 	.fb_create     = drm_gem_fb_create_with_dirty,
@@ -337,9 +304,8 @@ static const struct drm_driver epd_drm_driver = {
 	.minor   = 0,
 };
 
-/* =========================================================================
- * SPI driver probe / remove
- * ========================================================================= */
+
+
 
 static int epd_probe(struct spi_device *spi)
 {
@@ -347,7 +313,7 @@ static int epd_probe(struct spi_device *spi)
 	static const uint32_t epd_formats[] = { DRM_FORMAT_XRGB8888 };
 	int ret;
 
-	/* ---- Allocate DRM device with epd_device embedded ---------------- */
+	 
 	epd = devm_drm_dev_alloc(&spi->dev, &epd_drm_driver,
 				  struct epd_device, drm);
 	if (IS_ERR(epd))
@@ -360,13 +326,13 @@ static int epd_probe(struct spi_device *spi)
 	mutex_init(&epd->refresh_mutex);
 	INIT_WORK(&epd->refresh_work, epd_refresh_work_fn);
 
-	/* Apply module params */
+	 
 	epd->vcom_mv         = (u16)clamp(vcom_mv_param, 0, 5000);
 	epd->rotation        = clamp(rotation_param, 0, 3);
 	epd->mirror_x        = mirror_x_param;
 	epd->enhance_driving = enhance_drv_param;
 
-	/* ---- GPIO setup --------------------------------------------------- */
+	 
 	epd->gpio_rst = epd_get_gpio(&spi->dev, "rst", gpio_rst_num,
 				     GPIOD_OUT_HIGH);
 	if (IS_ERR(epd->gpio_rst)) {
@@ -383,17 +349,17 @@ static int epd_probe(struct spi_device *spi)
 		goto err_destroy_mutex;
 	}
 
-	/* ---- Configure SPI bus -------------------------------------------- */
+	 
 	spi->mode          = SPI_MODE_0;
 	spi->bits_per_word = 8;
-	spi->max_speed_hz  = 12000000;  /* 12 MHz; matches Waveshare reference (12.5 MHz) */
+	spi->max_speed_hz  = 12000000;   
 	ret = spi_setup(spi);
 	if (ret) {
 		dev_err(&spi->dev, "spi_setup failed: %d\n", ret);
 		goto err_destroy_mutex;
 	}
 
-	/* ---- SPI scratch buffer (DMA-capable) ----------------------------- */
+	 
 	epd->spi_buf_size = EPD_SPI_BUF_SIZE;
 	epd->spi_buf = kzalloc(epd->spi_buf_size, GFP_KERNEL);
 	if (!epd->spi_buf) {
@@ -401,7 +367,7 @@ static int epd_probe(struct spi_device *spi)
 		goto err_destroy_mutex;
 	}
 
-	/* ---- Initialise IT8951 hardware ----------------------------------- */
+	 
 	ret = epd_hw_init(epd);
 	if (ret) {
 		dev_err(&spi->dev, "hardware init failed: %d\n", ret);
@@ -414,7 +380,7 @@ static int epd_probe(struct spi_device *spi)
 			dev_warn(&spi->dev, "enhance_driving failed (non-fatal): %d\n", ret);
 	}
 
-	/* ---- Allocate pipeline stage 2/3 buffers (1bpp, full panel) ------ */
+	 
 	epd->fb_stride = DIV_ROUND_UP((u32)epd->panel_w, 8u);
 	epd->fb_size   = (size_t)epd->fb_stride * epd->panel_h;
 
@@ -430,7 +396,7 @@ static int epd_probe(struct spi_device *spi)
 		goto err_free_mono;
 	}
 
-	/* ---- DRM mode config --------------------------------------------- */
+	 
 	ret = drmm_mode_config_init(&epd->drm);
 	if (ret)
 		goto err_free_flip;
@@ -441,12 +407,11 @@ static int epd_probe(struct spi_device *spi)
 	epd->drm.mode_config.max_height = EPD_MAX_HEIGHT;
 	epd->drm.mode_config.funcs      = &epd_mode_config_funcs;
 
-	/* ---- Build fixed display mode from discovered panel size --------- */
+	 
 	memset(&epd->mode, 0, sizeof(epd->mode));
 	epd->mode.type        = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED;
-	/* clock (kHz) = vrefresh * htotal * vtotal / 1000.  E-paper has no real
-	 * pixel clock; pick EPD_NOMINAL_VREFRESH_HZ so drm_mode_vrefresh() yields
-	 * a non-zero value instead of rounding to 0. */
+	
+
 	epd->mode.clock       = EPD_NOMINAL_VREFRESH_HZ *
 				 (u32)epd->panel_w * epd->panel_h / 1000;
 	epd->mode.hdisplay    = epd->panel_w;
@@ -459,7 +424,7 @@ static int epd_probe(struct spi_device *spi)
 	epd->mode.vtotal      = epd->panel_h;
 	drm_mode_set_name(&epd->mode);
 
-	/* ---- Connector ---------------------------------------------------- */
+	 
 	ret = drmm_connector_init(&epd->drm, &epd->connector,
 				   &epd_connector_funcs,
 				   DRM_MODE_CONNECTOR_SPI, NULL);
@@ -469,7 +434,7 @@ static int epd_probe(struct spi_device *spi)
 	}
 	drm_connector_helper_add(&epd->connector, &epd_connector_helper_funcs);
 
-	/* ---- Simple display pipe ----------------------------------------- */
+	 
 	ret = drm_simple_display_pipe_init(&epd->drm, &epd->pipe,
 					   &epd_pipe_funcs,
 					   epd_formats, ARRAY_SIZE(epd_formats),
@@ -481,17 +446,17 @@ static int epd_probe(struct spi_device *spi)
 
 	drm_mode_config_reset(&epd->drm);
 
-	/* ---- Register DRM device ----------------------------------------- */
+	 
 	ret = drm_dev_register(&epd->drm, 0);
 	if (ret) {
 		dev_err(&spi->dev, "drm_dev_register failed: %d\n", ret);
 		goto err_free_flip;
 	}
 
-	/* ---- fbdev emulation (provides /dev/fb0 + fbcon for free) -------- */
+	 
 	drm_fbdev_shmem_setup(&epd->drm, 0);
 
-	/* ---- Initial display clear --------------------------------------- */
+	 
 	ret = epd_full_clear(epd);
 	if (ret)
 		dev_warn(&spi->dev, "initial clear failed (non-fatal): %d\n", ret);
@@ -523,7 +488,7 @@ static void epd_remove(struct spi_device *spi)
 
 	drm_dev_unregister(&epd->drm);
 
-	/* Stop the refresh worker and release any held FB reference */
+	 
 	cancel_work_sync(&epd->refresh_work);
 
 	spin_lock_irqsave(&epd->pending_lock, flags);
@@ -544,25 +509,23 @@ static void epd_remove(struct spi_device *spi)
 	dev_info(&spi->dev, "epd8951hat: removed\n");
 }
 
-/* =========================================================================
- * SPI device ID tables
- * ========================================================================= */
+
+
 
 static const struct of_device_id epd_of_match[] = {
 	{ .compatible = "waveshare,it8951" },
-	{ /* sentinel */ }
+	{   }
 };
 MODULE_DEVICE_TABLE(of, epd_of_match);
 
 static const struct spi_device_id epd_spi_id[] = {
 	{ "it8951", 0 },
-	{ /* sentinel */ }
+	{   }
 };
 MODULE_DEVICE_TABLE(spi, epd_spi_id);
 
-/* =========================================================================
- * Power management
- * ========================================================================= */
+
+
 
 #ifdef CONFIG_PM_SLEEP
 
@@ -570,7 +533,7 @@ static int epd_pm_suspend(struct device *dev)
 {
 	struct epd_device *epd = spi_get_drvdata(to_spi_device(dev));
 
-	/* Flush any pending refresh before sleeping */
+	 
 	cancel_work_sync(&epd->refresh_work);
 	epd_hw_sleep(epd);
 	return 0;
@@ -581,11 +544,8 @@ static int epd_pm_resume(struct device *dev)
 	struct epd_device *epd = spi_get_drvdata(to_spi_device(dev));
 
 	epd_hw_wakeup(epd);
-	/*
-	 * The DRM core will re-enable the pipe and send a new atomic commit
-	 * with the current framebuffer, triggering a full redraw via
-	 * epd_pipe_enable() + epd_pipe_update().  No explicit re-draw needed.
-	 */
+	
+
 	return 0;
 }
 
@@ -594,11 +554,10 @@ static SIMPLE_DEV_PM_OPS(epd_pm_ops, epd_pm_suspend, epd_pm_resume);
 
 #else
 #define EPD_PM_OPS NULL
-#endif /* CONFIG_PM_SLEEP */
+#endif  
 
-/* =========================================================================
- * SPI driver registration
- * ========================================================================= */
+
+
 
 static struct spi_driver epd_spi_driver = {
 	.driver = {
