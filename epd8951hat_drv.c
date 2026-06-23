@@ -9,6 +9,7 @@
 #include <linux/gpio.h>
 #include <linux/iosys-map.h>
 #include <linux/kernel.h>
+#include <linux/limits.h>
 #include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -59,6 +60,10 @@ MODULE_PARM_DESC(rotation, "Panel rotation: 0=0°, 1=90°, 2=180°, 3=270°");
 static bool mirror_x_param = true;
 module_param_named(mirror_x, mirror_x_param, bool, 0644);
 MODULE_PARM_DESC(mirror_x, "Horizontally mirror output (default off; use if panel is physically mounted mirrored)");
+
+static int idle_ms_param = EPD_IDLE_CLEAN_MS;
+module_param_named(idle_ms, idle_ms_param, int, 0644);
+MODULE_PARM_DESC(idle_ms, "Idle ms with no screen change before a single clean GC16 refresh (0 = disable)");
 
 static int gpio_rst_num  = 17;
 static int gpio_busy_num = 24;
@@ -162,6 +167,9 @@ static void epd_refresh_work_fn(struct work_struct *work)
 	struct iosys_map src_map;
 	struct drm_rect damage;
 	bool has_damage;
+	bool caught_up;
+	int rec_y0 = INT_MAX, rec_y1 = -1;
+	bool rec_full = false;
 	unsigned long flags;
 	int clip_y0, clip_y1;
 	int ret;
@@ -181,16 +189,44 @@ static void epd_refresh_work_fn(struct work_struct *work)
 		return;
 	}
 
-	if (has_damage) {
+	/* If no newer commit is queued we have caught up: this is the settle
+	 * point, so reconcile the whole deferred-dirty region (and clear it) to
+	 * converge the panel to the framebuffer. Otherwise stay responsive and
+	 * render only the newest delta, leaving older regions to be reconciled
+	 * once motion stops. */
+	spin_lock_irqsave(&epd->pending_lock, flags);
+	caught_up = (epd->pending_fb == NULL);
+	if (caught_up) {
+		rec_y0   = epd->acc_y0;
+		rec_y1   = epd->acc_y1;
+		rec_full = epd->acc_full;
+		epd->acc_y0   = INT_MAX;
+		epd->acc_y1   = -1;
+		epd->acc_full = false;
+	}
+	spin_unlock_irqrestore(&epd->pending_lock, flags);
+
+	if (caught_up) {
+		if (rec_full || !has_damage) {
+			clip_y0 = 0;
+			clip_y1 = (int)epd->panel_h - 1;
+		} else {
+			/* deferred band unioned with the delta we just consumed */
+			clip_y0 = max_t(int, min(rec_y0, damage.y1), 0);
+			clip_y1 = min_t(int, max(rec_y1, damage.y2 - 1),
+					(int)epd->panel_h - 1);
+		}
+	} else if (has_damage) {
 		clip_y0 = max_t(int, damage.y1, 0);
 		clip_y1 = min_t(int, damage.y2 - 1, (int)epd->panel_h - 1);
-		if (clip_y0 > clip_y1) {
-			drm_framebuffer_put(fb);
-			return;
-		}
 	} else {
 		clip_y0 = 0;
 		clip_y1 = (int)epd->panel_h - 1;
+	}
+
+	if (clip_y0 > clip_y1) {
+		drm_framebuffer_put(fb);
+		return;
 	}
 
 	gem   = drm_gem_fb_get_obj(fb, 0);
@@ -209,6 +245,28 @@ static void epd_refresh_work_fn(struct work_struct *work)
 	drm_framebuffer_put(fb);
 
 	epd_do_refresh(epd, clip_y0, clip_y1);
+}
+
+
+
+
+static void epd_idle_work_fn(struct work_struct *work)
+{
+	struct epd_device *epd =
+		container_of(work, struct epd_device, idle_work.work);
+	int ret;
+
+	/* Fires once the screen has been static for idle_ms. Re-armed by every
+	 * epd_pipe_update, so this only runs after activity has fully stopped. */
+	if (!epd->pipe_enabled || epd->suspended)
+		return;
+
+	mutex_lock(&epd->refresh_mutex);
+	ret = epd_clean_refresh_locked(epd, EPD_CLEAN_MODE);
+	mutex_unlock(&epd->refresh_mutex);
+
+	if (ret)
+		drm_warn(&epd->drm, "idle clean refresh failed: %d\n", ret);
 }
 
 
@@ -257,6 +315,7 @@ static void epd_pipe_disable(struct drm_simple_display_pipe *pipe)
 
 	epd->pipe_enabled = false;
 	cancel_work_sync(&epd->refresh_work);
+	cancel_delayed_work_sync(&epd->idle_work);
 
 	 
 	{
@@ -295,11 +354,26 @@ static void epd_pipe_update(struct drm_simple_display_pipe *pipe,
 		drm_framebuffer_put(epd->pending_fb);
 	drm_framebuffer_get(state->fb);
 	epd->pending_fb         = state->fb;
-	epd->pending_damage     = damage;
+	epd->pending_damage     = damage;        /* newest delta: rendered first */
 	epd->pending_has_damage = has_damage;
+
+	/* Accumulate every commit into the deferred-dirty band so coalesced
+	 * intermediate damage is never forgotten; the worker reconciles it once
+	 * it catches up. */
+	if (!has_damage) {
+		epd->acc_full = true;
+	} else {
+		epd->acc_y0 = min(epd->acc_y0, damage.y1);
+		epd->acc_y1 = max(epd->acc_y1, damage.y2 - 1);
+	}
 	spin_unlock_irqrestore(&epd->pending_lock, flags);
 
 	schedule_work(&epd->refresh_work);
+
+	/* (Re)arm the idle clean: it only fires once updates stop arriving. */
+	if (idle_ms_param > 0)
+		mod_delayed_work(system_wq, &epd->idle_work,
+				 msecs_to_jiffies(idle_ms_param));
 }
 
 static const struct drm_simple_display_pipe_funcs epd_pipe_funcs = {
@@ -352,6 +426,10 @@ static int epd_probe(struct spi_device *spi)
 	spin_lock_init(&epd->pending_lock);
 	mutex_init(&epd->refresh_mutex);
 	INIT_WORK(&epd->refresh_work, epd_refresh_work_fn);
+	INIT_DELAYED_WORK(&epd->idle_work, epd_idle_work_fn);
+	epd->acc_y0   = INT_MAX;
+	epd->acc_y1   = -1;
+	epd->acc_full = false;
 
 	 
 	epd->vcom_mv         = (u16)clamp(vcom_mv_param, 0, 5000);
@@ -519,6 +597,7 @@ static void epd_remove(struct spi_device *spi)
 
 	 
 	cancel_work_sync(&epd->refresh_work);
+	cancel_delayed_work_sync(&epd->idle_work);
 
 	spin_lock_irqsave(&epd->pending_lock, flags);
 	pending_fb      = epd->pending_fb;
@@ -564,6 +643,7 @@ static int epd_pm_suspend(struct device *dev)
 
 	 
 	cancel_work_sync(&epd->refresh_work);
+	cancel_delayed_work_sync(&epd->idle_work);
 	epd_hw_sleep(epd);
 	return 0;
 }

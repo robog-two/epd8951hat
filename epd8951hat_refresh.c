@@ -55,3 +55,30 @@ out:
 		mutex_unlock(&epd->refresh_mutex);
 	}
 }
+
+int epd_clean_refresh_locked(struct epd_device *epd, u8 mode)
+{
+	int ret;
+
+	ret = epd_wait_display_ready(epd);
+	if (ret) {
+		dev_err(&epd->spi->dev, "clean refresh: display not ready: %d\n", ret);
+		return ret;
+	}
+
+	/* Reload the whole shadow buffer and re-issue it through the clean
+	 * waveform. Content is identical, so flip_buf stays valid and the fast
+	 * A2 diff path resumes unchanged on the next update. */
+	ret = epd_load_image_1bpp(epd, epd->flip_buf, epd->fb_stride,
+				   0, 0, epd->panel_w, epd->panel_h);
+	if (ret) {
+		dev_err(&epd->spi->dev, "clean refresh: load image failed: %d\n", ret);
+		return ret;
+	}
+
+	ret = epd_display_area_1bpp(epd, 0, 0, epd->panel_w, epd->panel_h, mode);
+	if (ret)
+		dev_err(&epd->spi->dev, "clean refresh failed: %d\n", ret);
+
+	return ret;
+}

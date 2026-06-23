@@ -77,7 +77,12 @@
 #define EPD_MODE_DU                 1u
 #define EPD_MODE_GC16               2u
 #define EPD_MODE_GL16               3u
- 
+
+/* Waveform used for the periodic "clean" refresh that clears accumulated A2
+ * ghosting. GC16 re-renders the current content through the full 16-level
+ * waveform (no white flash); swap to EPD_MODE_GL16 for a lighter clean. */
+#define EPD_CLEAN_MODE              EPD_MODE_GC16
+
 
 
 
@@ -106,10 +111,13 @@
 
 
 
-#define EPD_NOMINAL_VREFRESH_HZ     30u   
+#define EPD_NOMINAL_VREFRESH_HZ     30u
 
 #define EPD_BUSY_TIMEOUT_MS        5000u
 #define EPD_DEFAULT_VCOM           2000u
+
+/* Idle period (ms) with no screen change before a single clean refresh runs. */
+#define EPD_IDLE_CLEAN_MS         30000u
 
 
 
@@ -171,9 +179,17 @@ struct epd_device {
 
 
 	struct work_struct      refresh_work;
+	struct delayed_work     idle_work;          /* fires after EPD idle to clean refresh */
 	struct drm_framebuffer *pending_fb;
-	struct drm_rect         pending_damage;     /* last damage rect from DRM */
+	struct drm_rect         pending_damage;     /* newest damage rect: rendered first */
 	bool                    pending_has_damage; /* false = full-screen refresh */
+
+	/* Deferred-dirty accumulator: union of every commit's damage not yet
+	 * fully reconciled. Rendered (and cleared) once the worker catches up so
+	 * changes deferred during fast motion still reach the panel. Empty when
+	 * acc_y0 > acc_y1. Protected by pending_lock. */
+	int                     acc_y0, acc_y1;
+	bool                    acc_full;           /* a coalesced commit needs a full frame */
 	spinlock_t              pending_lock;
 
 	 
@@ -220,4 +236,8 @@ int  epd_full_clear(struct epd_device *epd);
 
 void epd_do_refresh(struct epd_device *epd, int clip_y0, int clip_y1);
 
-#endif  
+/* Full-screen clean refresh of the current shadow buffer using waveform `mode`
+ * (e.g. EPD_CLEAN_MODE). Caller must hold epd->refresh_mutex. */
+int  epd_clean_refresh_locked(struct epd_device *epd, u8 mode);
+
+#endif
