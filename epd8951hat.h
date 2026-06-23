@@ -16,6 +16,7 @@
 #include <drm/drm_device.h>
 #include <drm/drm_framebuffer.h>
 #include <drm/drm_modes.h>
+#include <drm/drm_rect.h>
 #include <drm/drm_simple_kms_helper.h>
 
 #include "epd8951hat_pipeline.h"
@@ -168,9 +169,11 @@ struct epd_device {
 	u8   *spi_buf;
 	size_t spi_buf_size;
 
-	 
+
 	struct work_struct      refresh_work;
-	struct drm_framebuffer *pending_fb;   
+	struct drm_framebuffer *pending_fb;
+	struct drm_rect         pending_damage;     /* last damage rect from DRM */
+	bool                    pending_has_damage; /* false = full-screen refresh */
 	spinlock_t              pending_lock;
 
 	 
@@ -215,6 +218,6 @@ int  epd_full_clear(struct epd_device *epd);
 
 
 
-void epd_do_refresh(struct epd_device *epd);
+void epd_do_refresh(struct epd_device *epd, int clip_y0, int clip_y1);
 
 #endif  

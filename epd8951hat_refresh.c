@@ -9,7 +9,7 @@
 #include "epd8951hat.h"
 #include "epd8951hat_pipeline.h"
 
-void epd_do_refresh(struct epd_device *epd)
+void epd_do_refresh(struct epd_device *epd, int clip_y0, int clip_y1)
 {
 	u16 h      = epd->panel_h;
 	u32 stride = epd->fb_stride;
@@ -18,6 +18,7 @@ void epd_do_refresh(struct epd_device *epd)
 
 	epd_compute_dirty_rect(h, stride, epd->mirror_x,
 			       epd->mono_buf, epd->flip_buf,
+			       clip_y0, clip_y1,
 			       &y0, &y1, &b0, &b1);
 
 	if (y0 > y1)

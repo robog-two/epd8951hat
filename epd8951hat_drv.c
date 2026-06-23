@@ -22,6 +22,7 @@
 
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_connector.h>
+#include <drm/drm_damage_helper.h>
 #include <drm/drm_drv.h>
 #include <drm/drm_fbdev_shmem.h>
 #include <drm/drm_fourcc.h>
@@ -34,6 +35,7 @@
 #include <drm/drm_modeset_helper_vtables.h>
 #include <drm/drm_modes.h>
 #include <drm/drm_probe_helper.h>
+#include <drm/drm_rect.h>
 #include <drm/drm_simple_kms_helper.h>
 
 #include "epd8951hat.h"
@@ -139,10 +141,12 @@ static const struct drm_connector_funcs epd_connector_funcs = {
 
 
 static void epd_dither_xrgb8888(struct epd_device *epd,
-				  const void *src, u32 src_pitch)
+				  const void *src, u32 src_pitch,
+				  int clip_y0, int clip_y1)
 {
 	epd_dither_xrgb8888_fn(epd->panel_w, epd->panel_h, epd->fb_stride,
-				src, src_pitch, epd->mono_buf);
+				src, src_pitch, epd->mono_buf,
+				clip_y0, clip_y1);
 }
 
 
@@ -156,12 +160,17 @@ static void epd_refresh_work_fn(struct work_struct *work)
 	struct drm_gem_object *gem;
 	struct drm_gem_shmem_object *shmem;
 	struct iosys_map src_map;
+	struct drm_rect damage;
+	bool has_damage;
 	unsigned long flags;
+	int clip_y0, clip_y1;
 	int ret;
 
 	spin_lock_irqsave(&epd->pending_lock, flags);
-	fb              = epd->pending_fb;
-	epd->pending_fb = NULL;
+	fb                      = epd->pending_fb;
+	epd->pending_fb         = NULL;
+	damage                  = epd->pending_damage;
+	has_damage              = epd->pending_has_damage;
 	spin_unlock_irqrestore(&epd->pending_lock, flags);
 
 	if (!fb)
@@ -170,6 +179,18 @@ static void epd_refresh_work_fn(struct work_struct *work)
 	if (!epd->pipe_enabled) {
 		drm_framebuffer_put(fb);
 		return;
+	}
+
+	if (has_damage) {
+		clip_y0 = max_t(int, damage.y1, 0);
+		clip_y1 = min_t(int, damage.y2 - 1, (int)epd->panel_h - 1);
+		if (clip_y0 > clip_y1) {
+			drm_framebuffer_put(fb);
+			return;
+		}
+	} else {
+		clip_y0 = 0;
+		clip_y1 = (int)epd->panel_h - 1;
 	}
 
 	gem   = drm_gem_fb_get_obj(fb, 0);
@@ -182,12 +203,12 @@ static void epd_refresh_work_fn(struct work_struct *work)
 		return;
 	}
 
-	epd_dither_xrgb8888(epd, src_map.vaddr, fb->pitches[0]);
+	epd_dither_xrgb8888(epd, src_map.vaddr, fb->pitches[0], clip_y0, clip_y1);
 
 	drm_gem_shmem_vunmap(shmem, &src_map);
 	drm_framebuffer_put(fb);
 
-	epd_do_refresh(epd);
+	epd_do_refresh(epd, clip_y0, clip_y1);
 }
 
 
@@ -222,7 +243,8 @@ static void epd_pipe_enable(struct drm_simple_display_pipe *pipe,
 		if (epd->pending_fb)
 			drm_framebuffer_put(epd->pending_fb);
 		drm_framebuffer_get(plane_state->fb);
-		epd->pending_fb = plane_state->fb;
+		epd->pending_fb          = plane_state->fb;
+		epd->pending_has_damage  = false; /* force full-screen refresh on enable */
 		spin_unlock_irqrestore(&epd->pending_lock, flags);
 
 		schedule_work(&epd->refresh_work);
@@ -259,17 +281,22 @@ static void epd_pipe_update(struct drm_simple_display_pipe *pipe,
 {
 	struct epd_device *epd = to_epd(pipe->crtc.dev);
 	struct drm_plane_state *state = pipe->plane.state;
+	struct drm_rect damage;
+	bool has_damage;
 	unsigned long flags;
 
 	if (!pipe->crtc.state->active || !state->fb)
 		return;
 
-	 
+	has_damage = drm_atomic_helper_damage_merged(old_state, state, &damage);
+
 	spin_lock_irqsave(&epd->pending_lock, flags);
 	if (epd->pending_fb)
 		drm_framebuffer_put(epd->pending_fb);
 	drm_framebuffer_get(state->fb);
-	epd->pending_fb = state->fb;
+	epd->pending_fb         = state->fb;
+	epd->pending_damage     = damage;
+	epd->pending_has_damage = has_damage;
 	spin_unlock_irqrestore(&epd->pending_lock, flags);
 
 	schedule_work(&epd->refresh_work);
@@ -443,6 +470,8 @@ static int epd_probe(struct spi_device *spi)
 		dev_err(&spi->dev, "pipe init failed: %d\n", ret);
 		goto err_free_flip;
 	}
+
+	drm_plane_enable_fb_damage_clips(&epd->pipe.plane);
 
 	drm_mode_config_reset(&epd->drm);
 

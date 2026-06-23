@@ -35,14 +35,21 @@ enum epd_lut_variant {
 
 
 
+/* clip_y0/clip_y1 limit processing to a horizontal band of rows (inclusive).
+ * Pass 0 / h-1 for a full-frame dither. Only the clipped rows are zeroed and
+ * re-dithered; rows outside the band keep their previous mono_buf content. */
 void epd_dither_xrgb8888_fn(u16 w, u16 h, u32 stride,
 			      const u8 *src, u32 src_pitch,
-			      u8 *mono_buf);
+			      u8 *mono_buf,
+			      int clip_y0, int clip_y1);
 
 
 
+/* clip_y0/clip_y1 restrict the diff scan to the same band used for dithering.
+ * Only rows in [clip_y0, clip_y1] are compared against flip_buf. */
 void epd_compute_dirty_rect(u16 h, u32 stride, bool mirror_x,
 			      const u8 *mono_buf, u8 *flip_buf,
+			      int clip_y0, int clip_y1,
 			      int *y0_out, int *y1_out,
 			      int *b0_out, int *b1_out);
 

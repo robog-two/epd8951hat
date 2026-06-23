@@ -74,7 +74,7 @@ static void test_dither_white_image(void)
 		px(src + i * 4, 255, 255, 255);
 
 	memset(mono, 0xAA, sizeof(mono));   
-	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono);
+	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono, 0, (int)h - 1);
 
 	for (i = 0; i < (int)(stride * h); i++)
 		CHECK_EQ(mono[i], 0x00);
@@ -92,7 +92,7 @@ static void test_dither_black_image(void)
 	for (i = 0; i < 8 * 2; i++)
 		px(src + i * 4, 0, 0, 0);
 
-	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono);
+	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono, 0, (int)h - 1);
 
 	for (i = 0; i < (int)(stride * h); i++)
 		CHECK_EQ(mono[i], 0xFF);
@@ -112,7 +112,7 @@ static void test_dither_bit_order(void)
 		px(src + i * 4, 255, 255, 255);   
 	px(src + 0 * 4, 0, 0, 0);             
 
-	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono);
+	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono, 0, (int)h - 1);
 
 	CHECK(mono[0] & 0x80);              
 	CHECK_EQ(mono[1], 0x00);            
@@ -132,7 +132,7 @@ static void test_dither_bit_order_last_col(void)
 		px(src + i * 4, 255, 255, 255);
 	px(src + 7 * 4, 0, 0, 0);
 
-	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono);
+	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono, 0, (int)h - 1);
 
 	CHECK(mono[0] & 0x01);              
 }
@@ -149,7 +149,7 @@ static void test_dither_50pct_gray_two_pixels(void)
 	px(src + 0, 127, 127, 127);
 	px(src + 4, 127, 127, 127);
 
-	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono);
+	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono, 0, (int)h - 1);
 
 	CHECK(mono[0] & 0x80);              
 	CHECK(!(mono[0] & 0x40));           
@@ -168,7 +168,7 @@ static void test_dither_luma_weights(void)
 	px(src + 1 * 4, 0, 255, 0);    
 	px(src + 2 * 4, 0, 0, 255);    
 
-	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono);
+	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono, 0, (int)h - 1);
 
 	CHECK(mono[0] & 0x80);              
 	CHECK(!(mono[0] & 0x40));           
@@ -189,7 +189,7 @@ static void test_dither_second_row(void)
 		px(src + i * 4, 255, 255, 255);    
 	px(src + (8 + 0) * 4, 0, 0, 0);        
 
-	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono);
+	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono, 0, (int)h - 1);
 
 	CHECK_EQ(mono[0], 0x00);    
 	CHECK(mono[1] & 0x80);      
@@ -208,7 +208,7 @@ static void test_dither_no_spillover_into_next_row(void)
 	px(src + 1 * 4, 0, 0, 0);
 	px(src + 2 * 4, 0, 0, 0);
 
-	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono);
+	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono, 0, (int)h - 1);
 
 	 
 	CHECK_EQ(mono[0] & 0x1F, 0x00);
@@ -231,6 +231,7 @@ static void test_dirty_identical_frames(void)
 		mono[i] = flip[i] = (u8)(i + 1);   
 
 	epd_compute_dirty_rect(h, stride, false, mono, flip,
+			       0, (int)h - 1,
 			       &y0, &y1, &b0, &b1);
 
 	CHECK(y0 > y1);   
@@ -250,6 +251,7 @@ static void test_dirty_single_byte_top_left(void)
 	mono[0] = 0xFF;   
 
 	epd_compute_dirty_rect(h, stride, false, mono, flip,
+			       0, (int)h - 1,
 			       &y0, &y1, &b0, &b1);
 
 	CHECK_EQ(y0, 0); CHECK_EQ(y1, 0);
@@ -270,6 +272,7 @@ static void test_dirty_single_byte_interior(void)
 	mono[5 * 5 + 3] = 0xAB;   
 
 	epd_compute_dirty_rect(h, stride, false, mono, flip,
+			       0, (int)h - 1,
 			       &y0, &y1, &b0, &b1);
 
 	CHECK_EQ(y0, 5); CHECK_EQ(y1, 5);
@@ -291,6 +294,7 @@ static void test_dirty_multiple_rows(void)
 	mono[3 * 4 + 2] = 0x02;   
 
 	epd_compute_dirty_rect(h, stride, false, mono, flip,
+			       0, (int)h - 1,
 			       &y0, &y1, &b0, &b1);
 
 	CHECK_EQ(y0, 1); CHECK_EQ(y1, 3);
@@ -307,6 +311,7 @@ static void test_dirty_flip_buf_updated(void)
 	int y0, y1, b0, b1;
 
 	epd_compute_dirty_rect(h, stride, false, mono, flip,
+			       0, (int)h - 1,
 			       &y0, &y1, &b0, &b1);
 
 	CHECK_EQ(flip[0], 0xAB);
@@ -323,6 +328,7 @@ static void test_dirty_no_mirror(void)
 	int y0, y1, b0, b1;
 
 	epd_compute_dirty_rect(h, stride, false, mono, flip,
+			       0, (int)h - 1,
 			       &y0, &y1, &b0, &b1);
 
 	CHECK_EQ(flip[0], 0x12);
@@ -340,6 +346,7 @@ static void test_dirty_mirror_x_single_byte(void)
 	int y0, y1, b0, b1;
 
 	epd_compute_dirty_rect(h, stride, true, mono, flip,
+			       0, (int)h - 1,
 			       &y0, &y1, &b0, &b1);
 
 	CHECK_EQ(flip[0], bitrev8(0xAB));
@@ -358,6 +365,7 @@ static void test_dirty_mirror_x_two_bytes(void)
 	int y0, y1, b0, b1;
 
 	epd_compute_dirty_rect(h, stride, true, mono, flip,
+			       0, (int)h - 1,
 			       &y0, &y1, &b0, &b1);
 
 	CHECK_EQ(flip[0], bitrev8(0xCD));    
@@ -375,6 +383,7 @@ static void test_dirty_mirror_identical_after_reverse(void)
 	int y0, y1, b0, b1;
 
 	epd_compute_dirty_rect(h, stride, true, mono, flip,
+			       0, (int)h - 1,
 			       &y0, &y1, &b0, &b1);
 
 	CHECK(y0 > y1);   
@@ -391,6 +400,7 @@ static void test_dirty_only_changed_cols_in_bbox(void)
 	int y0, y1, b0, b1;
 
 	epd_compute_dirty_rect(h, stride, false, mono, flip,
+			       0, (int)h - 1,
 			       &y0, &y1, &b0, &b1);
 
 	CHECK_EQ(b0, 2); CHECK_EQ(b1, 2);

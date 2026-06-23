@@ -18,11 +18,11 @@ static inline int rgb8888_to_grayscale(const u8 *px)
 }
 
 /* Fallback dithering using simple thresholding */
-static void apply_threshold_dithering(u16 w, u16 h, u32 stride,
+static void apply_threshold_dithering(u16 w, u32 stride,
 				      const u8 *src, u32 src_pitch,
-				      u8 *mono_buf)
+				      u8 *mono_buf, int y_start, int y_end)
 {
-	for (int y = 0; y < (int)h; y++) {
+	for (int y = y_start; y <= y_end; y++) {
 		const u8 *row = src + (size_t)y * src_pitch;
 		for (int x = 0; x < (int)w; x++) {
 			int g = rgb8888_to_grayscale(&row[x * 4]);
@@ -33,11 +33,12 @@ static void apply_threshold_dithering(u16 w, u16 h, u32 stride,
 }
 
 /* Floyd-Steinberg dithering implementation */
-static void apply_floyd_steinberg(u16 w, u16 h, u32 stride,
+static void apply_floyd_steinberg(u16 w, u32 stride,
 				  const u8 *src, u32 src_pitch,
-				  u8 *mono_buf, int *err_cur, int *err_nxt)
+				  u8 *mono_buf, int *err_cur, int *err_nxt,
+				  int y_start, int y_end)
 {
-	for (int y = 0; y < (int)h; y++) {
+	for (int y = y_start; y <= y_end; y++) {
 		const u8 *row = src + (size_t)y * src_pitch;
 		memset(err_nxt, 0, (w + 2) * sizeof(int));
 
@@ -54,7 +55,7 @@ static void apply_floyd_steinberg(u16 w, u16 h, u32 stride,
 			}
 
 			err = val - new_val;
-			
+
 			err_cur[x + 2]        += err * 7;
 			if (x > 0) err_nxt[x] += err * 3;
 			err_nxt[x + 1]        += err * 5;
@@ -69,17 +70,27 @@ static void apply_floyd_steinberg(u16 w, u16 h, u32 stride,
 
 void epd_dither_xrgb8888_fn(u16 w, u16 h, u32 stride,
 			      const u8 *src, u32 src_pitch,
-			      u8 *mono_buf)
+			      u8 *mono_buf,
+			      int clip_y0, int clip_y1)
 {
-	memset(mono_buf, 0, (size_t)stride * h);
+	int y_start = max(clip_y0, 0);
+	int y_end   = min(clip_y1, (int)h - 1);
+
+	if (y_start > y_end)
+		return;
+
+	memset(mono_buf + (size_t)y_start * stride, 0,
+	       (size_t)(y_end - y_start + 1) * stride);
 
 	int *err_cur = kcalloc(w + 2, sizeof(int), GFP_KERNEL);
 	int *err_nxt = kcalloc(w + 2, sizeof(int), GFP_KERNEL);
 
 	if (!err_cur || !err_nxt) {
-		apply_threshold_dithering(w, h, stride, src, src_pitch, mono_buf);
+		apply_threshold_dithering(w, stride, src, src_pitch, mono_buf,
+					  y_start, y_end);
 	} else {
-		apply_floyd_steinberg(w, h, stride, src, src_pitch, mono_buf, err_cur, err_nxt);
+		apply_floyd_steinberg(w, stride, src, src_pitch, mono_buf,
+				      err_cur, err_nxt, y_start, y_end);
 	}
 
 	kfree(err_cur);
@@ -96,13 +107,16 @@ static inline u8 get_mono_byte(bool mirror_x, const u8 *mono_buf, u32 stride, in
 
 void epd_compute_dirty_rect(u16 h, u32 stride, bool mirror_x,
 			      const u8 *mono_buf, u8 *flip_buf,
+			      int clip_y0, int clip_y1,
 			      int *y0_out, int *y1_out,
 			      int *b0_out, int *b1_out)
 {
 	int y0 = (int)h, y1 = -1;
 	int b0 = (int)stride, b1 = -1;
+	int y_start = max(clip_y0, 0);
+	int y_end   = min(clip_y1, (int)h - 1);
 
-	for (int y = 0; y < (int)h; y++) {
+	for (int y = y_start; y <= y_end; y++) {
 		for (int b = 0; b < (int)stride; b++) {
 			u8 nb = get_mono_byte(mirror_x, mono_buf, stride, y, b);
 
