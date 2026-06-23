@@ -56,9 +56,9 @@ static int rotation_param;
 module_param_named(rotation, rotation_param, int, 0644);
 MODULE_PARM_DESC(rotation, "Panel rotation: 0=0°, 1=90°, 2=180°, 3=270°");
 
-static bool mirror_x_param = true;
+static bool mirror_x_param = false;
 module_param_named(mirror_x, mirror_x_param, bool, 0644);
-MODULE_PARM_DESC(mirror_x, "Horizontally mirror output (default on for 10.3\" panel)");
+MODULE_PARM_DESC(mirror_x, "Horizontally mirror output (default off; use if panel is physically mounted mirrored)");
 
 static int gpio_rst_num  = 17;
 static int gpio_busy_num = 24;
