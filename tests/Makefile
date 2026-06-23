@@ -19,7 +19,12 @@ CFLAGS  := -std=c11 -Wall -Wextra -Werror \
 SRC     := ../epd8951hat_pipeline.c test_pipeline.c
 BIN     := test_pipeline
 
-.PHONY: all run clean
+BENCH_SRC := ../epd8951hat_pipeline.c bench_pipeline.c
+BENCH_BIN := bench_pipeline
+# The benchmark wants optimisation; -O0 would mask the algorithmic wins.
+BENCH_CFLAGS := -std=c11 -Wall -Wextra -DTESTING_BUILD -I. -I.. -O2
+
+.PHONY: all run bench clean
 
 all: $(BIN)
 
@@ -29,5 +34,11 @@ $(BIN): $(SRC) ../epd8951hat_pipeline.h compat.h
 run: $(BIN)
 	./$(BIN)
 
+$(BENCH_BIN): $(BENCH_SRC) ../epd8951hat_pipeline.h compat.h
+	$(CC) $(BENCH_CFLAGS) $(BENCH_SRC) -o $@
+
+bench: $(BENCH_BIN)
+	./$(BENCH_BIN)
+
 clean:
-	rm -f $(BIN)
+	rm -f $(BIN) $(BENCH_BIN)

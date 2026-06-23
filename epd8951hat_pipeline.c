@@ -33,40 +33,67 @@ static void apply_threshold_dithering(u16 w, u32 stride,
 	}
 }
 
-/* Floyd-Steinberg dithering implementation */
+/* Floyd-Steinberg dithering.
+ *
+ * Instead of the classic two-row ping-pong (err_cur/err_nxt) this keeps a
+ * single error buffer of w elements that is rewritten in place as each row is
+ * consumed. err[x] holds, in unnormalised 1/16-pixel units, the diffused error
+ * destined for column x of the row currently being processed. The rightward
+ * (7/16) error stays within the row in the scalar `carry`, and the down-right
+ * (1/16) error is deferred one column in the scalar `dr`; both are off the
+ * panel at the row edges, exactly matching the old buffer's dropped indices.
+ *
+ * Because err[x] is reassigned (not accumulated) before it is reused, the per-
+ * row memset of the original is unnecessary, and the output is bit-for-bit
+ * identical to the two-buffer version. Pixels are packed into an 8-bit
+ * accumulator and flushed once per byte rather than read-modify-written
+ * per pixel. `err` must hold at least w ints, zeroed by the caller. */
 static void apply_floyd_steinberg(u16 w, u32 stride,
 				  const u8 *src, u32 src_pitch,
-				  u8 *mono_buf, int *err_cur, int *err_nxt,
+				  u8 *mono_buf, int *err,
 				  int y_start, int y_end)
 {
 	for (int y = y_start; y <= y_end; y++) {
 		const u8 *row = src + (size_t)y * src_pitch;
-		memset(err_nxt, 0, (w + 2) * sizeof(int));
+		u8 *mrow = mono_buf + (size_t)y * stride;
+		int carry = 0;   /* rightward 7/16 error within the row */
+		int dr    = 0;   /* down-right 1/16 error deferred one column */
+		u8 bits   = 0;   /* LSB-first packed output, flushed every 8 px */
 
 		for (int x = 0; x < (int)w; x++) {
 			int gray = rgb8888_to_grayscale(&row[x * 4]);
-			int val  = clamp(gray + err_cur[x + 1] / 16, 0, 255);
-			int new_val, err;
+			int val  = clamp(gray + (err[x] + carry) / 16, 0, 255);
+			int new_val, e;
 
 			/* bit set = white, bit clear = black (IT8951 1bpp convention) */
 			if (val >= 128) {
 				new_val = 255;
-				mono_buf[(size_t)y * stride + x / 8] |= (u8)(1u << (x & 7));
+				bits |= (u8)(1u << (x & 7));
 			} else {
 				new_val = 0;
 			}
 
-			err = val - new_val;
+			e = val - new_val;
 
-			err_cur[x + 2]        += err * 7;
-			if (x > 0) err_nxt[x] += err * 3;
-			err_nxt[x + 1]        += err * 5;
-			err_nxt[x + 2]        += err;
+			/* Rebuild err[] for the next row in place: column x is now
+			 * consumed, so store its down (5/16) error plus the down-right
+			 * (1/16) carried from column x-1; the down-left (3/16) goes to
+			 * the already-consumed column x-1. */
+			err[x] = e * 5 + dr;
+			if (x > 0)
+				err[x - 1] += e * 3;
+			dr    = e;
+			carry = e * 7;
+
+			if ((x & 7) == 7) {
+				mrow[x >> 3] = bits;
+				bits = 0;
+			}
 		}
 
-		int *tmp = err_cur;
-		err_cur = err_nxt;
-		err_nxt = tmp;
+		/* Flush the trailing partial byte when w is not a multiple of 8. */
+		if (w & 7)
+			mrow[(w - 1) >> 3] = bits;
 	}
 }
 
@@ -81,30 +108,23 @@ void epd_dither_xrgb8888_fn(u16 w, u16 h, u32 stride,
 	if (y_start > y_end)
 		return;
 
-	memset(mono_buf + (size_t)y_start * stride, 0,
-	       (size_t)(y_end - y_start + 1) * stride);
+	/* One zeroed error row replaces the old two-buffer ping-pong. The fast
+	 * path writes every output byte itself, so the band no longer needs to be
+	 * pre-zeroed; only the threshold fallback (which ORs bits in) does. */
+	int *err = kcalloc(w, sizeof(int), GFP_KERNEL);
 
-	int *err_cur = kcalloc(w + 2, sizeof(int), GFP_KERNEL);
-	int *err_nxt = kcalloc(w + 2, sizeof(int), GFP_KERNEL);
-
-	if (!err_cur || !err_nxt) {
+	if (!err) {
+		memset(mono_buf + (size_t)y_start * stride, 0,
+		       (size_t)(y_end - y_start + 1) * stride);
 		apply_threshold_dithering(w, stride, src, src_pitch, mono_buf,
 					  y_start, y_end);
-	} else {
-		apply_floyd_steinberg(w, stride, src, src_pitch, mono_buf,
-				      err_cur, err_nxt, y_start, y_end);
+		return;
 	}
 
-	kfree(err_cur);
-	kfree(err_nxt);
-}
+	apply_floyd_steinberg(w, stride, src, src_pitch, mono_buf,
+			      err, y_start, y_end);
 
-/* Helper to safely retrieve a monochromatic byte with optional mirroring */
-static inline u8 get_mono_byte(bool mirror_x, const u8 *mono_buf, u32 stride, int y, int b)
-{
-	if (mirror_x)
-		return bitrev8(mono_buf[(size_t)y * stride + (stride - 1 - b)]);
-	return mono_buf[(size_t)y * stride + b];
+	kfree(err);
 }
 
 void epd_compute_dirty_rect(u16 h, u32 stride, bool mirror_x,
@@ -121,19 +141,42 @@ void epd_compute_dirty_rect(u16 h, u32 stride, bool mirror_x,
 	int b_start = max(b_clip0, 0);
 	int b_end   = min(b_clip1, (int)stride - 1);
 
+	/* Hoist the mirror_x decision out of the per-byte inner loop: it is
+	 * constant for the whole scan, so branching on it once per row keeps the
+	 * hot loop straight-line. Row base pointers are computed once per row
+	 * rather than re-deriving y * stride for every byte. */
 	for (int y = y_start; y <= y_end; y++) {
-		for (int b = b_start; b <= b_end; b++) {
-			u8 nb = get_mono_byte(mirror_x, mono_buf, stride, y, b);
+		const u8 *mrow = mono_buf + (size_t)y * stride;
+		u8 *frow       = flip_buf + (size_t)y * stride;
 
-			if (nb == flip_buf[(size_t)y * stride + b])
-				continue;
+		if (mirror_x) {
+			for (int b = b_start; b <= b_end; b++) {
+				u8 nb = bitrev8(mrow[stride - 1 - b]);
 
-			flip_buf[(size_t)y * stride + b] = nb;
+				if (nb == frow[b])
+					continue;
 
-			if (y < y0) y0 = y;
-			if (y > y1) y1 = y;
-			if (b < b0) b0 = b;
-			if (b > b1) b1 = b;
+				frow[b] = nb;
+
+				if (y < y0) y0 = y;
+				if (y > y1) y1 = y;
+				if (b < b0) b0 = b;
+				if (b > b1) b1 = b;
+			}
+		} else {
+			for (int b = b_start; b <= b_end; b++) {
+				u8 nb = mrow[b];
+
+				if (nb == frow[b])
+					continue;
+
+				frow[b] = nb;
+
+				if (y < y0) y0 = y;
+				if (y > y1) y1 = y;
+				if (b < b0) b0 = b;
+				if (b > b1) b1 = b;
+			}
 		}
 	}
 

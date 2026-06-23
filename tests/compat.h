@@ -16,7 +16,20 @@ typedef uint64_t u64;
 
 #define GFP_KERNEL 0
 
-#define kcalloc(n, sz, flags) calloc((n), (sz))
+/* Allocation instrumentation for the userspace benchmark/tests. Weak globals so
+ * every translation unit that includes this header shares one counter without a
+ * multiple-definition error; they stay zero unless the benchmark inspects them. */
+unsigned long epd_alloc_calls __attribute__((weak));
+unsigned long epd_alloc_bytes __attribute__((weak));
+
+static inline void *epd_counted_calloc(size_t n, size_t sz)
+{
+	epd_alloc_calls += 1;
+	epd_alloc_bytes += (unsigned long)n * sz;
+	return calloc(n, sz);
+}
+
+#define kcalloc(n, sz, flags) epd_counted_calloc((n), (sz))
 #define kfree(p)              free(p)
 
 #define min(a, b) ((a) < (b) ? (a) : (b))
