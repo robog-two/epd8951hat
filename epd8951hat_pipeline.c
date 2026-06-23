@@ -27,7 +27,7 @@ static void apply_threshold_dithering(u16 w, u32 stride,
 		for (int x = 0; x < (int)w; x++) {
 			int g = rgb8888_to_grayscale(&row[x * 4]);
 			if (g < 128)
-				mono_buf[(size_t)y * stride + x / 8] |= (u8)(0x80u >> (x & 7));
+				mono_buf[(size_t)y * stride + x / 8] |= (u8)(1u << (x & 7));
 		}
 	}
 }
@@ -49,7 +49,7 @@ static void apply_floyd_steinberg(u16 w, u32 stride,
 
 			if (val < 128) {
 				new_val = 0;
-				mono_buf[(size_t)y * stride + x / 8] |= (u8)(0x80u >> (x & 7));
+				mono_buf[(size_t)y * stride + x / 8] |= (u8)(1u << (x & 7));
 			} else {
 				new_val = 255;
 			}
@@ -101,7 +101,7 @@ void epd_dither_xrgb8888_fn(u16 w, u16 h, u32 stride,
 static inline u8 get_mono_byte(bool mirror_x, const u8 *mono_buf, u32 stride, int y, int b)
 {
 	if (mirror_x)
-		return bitrev8(mono_buf[(size_t)y * stride + (stride - 1 - b)]);
+		return mono_buf[(size_t)y * stride + (stride - 1 - b)];
 	return mono_buf[(size_t)y * stride + b];
 }
 

@@ -114,8 +114,9 @@ static void test_dither_bit_order(void)
 
 	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono, 0, (int)h - 1);
 
-	CHECK(mono[0] & 0x80);              
-	CHECK_EQ(mono[1], 0x00);            
+	/* IT8951 1bpp uses LSB-first: pixel 0 → bit 0 (0x01) */
+	CHECK(mono[0] & 0x01);
+	CHECK_EQ(mono[1], 0x00);
 }
 
 static void test_dither_bit_order_last_col(void)
@@ -134,8 +135,10 @@ static void test_dither_bit_order_last_col(void)
 
 	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono, 0, (int)h - 1);
 
-	CHECK(mono[0] & 0x01);              
+	/* IT8951 1bpp uses LSB-first: pixel 7 → bit 7 (0x80) */
+	CHECK(mono[0] & 0x80);
 }
+
 
 static void test_dither_50pct_gray_two_pixels(void)
 {
@@ -151,8 +154,9 @@ static void test_dither_50pct_gray_two_pixels(void)
 
 	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono, 0, (int)h - 1);
 
-	CHECK(mono[0] & 0x80);              
-	CHECK(!(mono[0] & 0x40));           
+	/* LSB-first: pixel 0 → bit 0, pixel 1 → bit 1 */
+	CHECK(mono[0] & 0x01);
+	CHECK(!(mono[0] & 0x02));
 }
 
 static void test_dither_luma_weights(void)
@@ -170,9 +174,10 @@ static void test_dither_luma_weights(void)
 
 	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono, 0, (int)h - 1);
 
-	CHECK(mono[0] & 0x80);              
-	CHECK(!(mono[0] & 0x40));           
-	CHECK(mono[0] & 0x20);              
+	/* LSB-first: red(pixel 0)→bit 0, green(pixel 1)→bit 1, blue(pixel 2)→bit 2 */
+	CHECK(mono[0] & 0x01);
+	CHECK(!(mono[0] & 0x02));
+	CHECK(mono[0] & 0x04);
 }
 
 static void test_dither_second_row(void)
@@ -191,8 +196,9 @@ static void test_dither_second_row(void)
 
 	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono, 0, (int)h - 1);
 
-	CHECK_EQ(mono[0], 0x00);    
-	CHECK(mono[1] & 0x80);      
+	CHECK_EQ(mono[0], 0x00);
+	/* LSB-first: pixel 0 of row 1 → bit 0 */
+	CHECK(mono[1] & 0x01);
 }
 
 static void test_dither_no_spillover_into_next_row(void)
@@ -210,8 +216,8 @@ static void test_dither_no_spillover_into_next_row(void)
 
 	epd_dither_xrgb8888_fn(w, h, stride, src, w * 4, mono, 0, (int)h - 1);
 
-	 
-	CHECK_EQ(mono[0] & 0x1F, 0x00);
+	/* LSB-first: pixels 0-2 → bits 0-2; bits 3-7 must stay clear */
+	CHECK_EQ(mono[0] & 0xF8, 0x00);
 }
 
 
@@ -349,7 +355,8 @@ static void test_dirty_mirror_x_single_byte(void)
 			       0, (int)h - 1,
 			       &y0, &y1, &b0, &b1);
 
-	CHECK_EQ(flip[0], bitrev8(0xAB));
+	/* mirror_x reverses byte order only; no bitrev8 (bits are already LSB-first) */
+	CHECK_EQ(flip[0], 0xAB);
 	CHECK_EQ(y0, 0); CHECK_EQ(y1, 0);
 	CHECK_EQ(b0, 0); CHECK_EQ(b1, 0);
 }
@@ -368,8 +375,9 @@ static void test_dirty_mirror_x_two_bytes(void)
 			       0, (int)h - 1,
 			       &y0, &y1, &b0, &b1);
 
-	CHECK_EQ(flip[0], bitrev8(0xCD));    
-	CHECK_EQ(flip[1], bitrev8(0xAB));    
+	/* mirror_x reverses byte order only: [AB,CD] → [CD,AB] */
+	CHECK_EQ(flip[0], 0xCD);
+	CHECK_EQ(flip[1], 0xAB);
 }
 
 static void test_dirty_mirror_identical_after_reverse(void)
@@ -379,14 +387,14 @@ static void test_dirty_mirror_identical_after_reverse(void)
 	const u16 h = 1;
 	const u32 stride = 1;
 	u8 mono[1] = { 0xAB };
-	u8 flip[1] = { bitrev8(0xAB) };    
+	u8 flip[1] = { 0xAB };    /* mirror_x with stride=1: same byte, no change */
 	int y0, y1, b0, b1;
 
 	epd_compute_dirty_rect(h, stride, true, mono, flip,
 			       0, (int)h - 1,
 			       &y0, &y1, &b0, &b1);
 
-	CHECK(y0 > y1);   
+	CHECK(y0 > y1);
 }
 
 static void test_dirty_only_changed_cols_in_bbox(void)
