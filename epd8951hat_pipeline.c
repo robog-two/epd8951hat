@@ -3,10 +3,10 @@
 
 
 #ifndef TESTING_BUILD
-#  include <linux/bitrev.h>   
-#  include <linux/kernel.h>   
-#  include <linux/slab.h>     
-#  include <linux/string.h>   
+#  include <linux/bitrev.h>
+#  include <linux/kernel.h>
+#  include <linux/slab.h>
+#  include <linux/string.h>
 #endif
 
 #include "epd8951hat_pipeline.h"
@@ -101,7 +101,7 @@ void epd_dither_xrgb8888_fn(u16 w, u16 h, u32 stride,
 static inline u8 get_mono_byte(bool mirror_x, const u8 *mono_buf, u32 stride, int y, int b)
 {
 	if (mirror_x)
-		return mono_buf[(size_t)y * stride + (stride - 1 - b)];
+		return bitrev8(mono_buf[(size_t)y * stride + (stride - 1 - b)]);
 	return mono_buf[(size_t)y * stride + b];
 }
 
