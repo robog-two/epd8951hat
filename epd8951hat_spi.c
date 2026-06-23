@@ -467,8 +467,11 @@ int epd_load_image_1bpp(struct epd_device *epd,
 	if (ret)
 		return ret;
 
-	args[0] = (u16)((IT8951_ENDIAN_LITTLE << 8) |
-			(IT8951_PIX_FMT_8BPP  << 4) |
+	/* BIG endian: SPI sends high byte first, so the controller must not swap
+	 * pairs of bytes. LITTLE would cause the IT8951 to byte-swap every 16-bit
+	 * word, reversing each 16-pixel group and producing flipped columns. */
+	args[0] = (u16)((IT8951_ENDIAN_BIG  << 8) |
+			(IT8951_PIX_FMT_8BPP << 4) |
 			IT8951_ROTATE_0);
 	args[1] = x / 8;
 	args[2] = y;
