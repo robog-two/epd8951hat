@@ -19,9 +19,18 @@ void epd_do_refresh(struct epd_device *epd,
 	int y0, y1, b0, b1;
 	int ret;
 
-	/* Convert pixel x bounds to inclusive byte-column bounds for the diff. */
+	/* Convert pixel x bounds to inclusive byte-column bounds for the diff.
+	 * When mirror_x is set, flip_buf stores mirrored content at display
+	 * column b (not source column b), so we must convert the source-space
+	 * clip into display-space before scanning flip_buf for dirty bytes. */
 	b_clip0 = max(clip_x0 / 8, 0);
 	b_clip1 = min(clip_x1 / 8, (int)stride - 1);
+
+	if (epd->mirror_x) {
+		int tmp = (int)stride - 1 - b_clip1;
+		b_clip1  = (int)stride - 1 - b_clip0;
+		b_clip0  = tmp;
+	}
 
 	epd_compute_dirty_rect(h, stride, epd->mirror_x,
 			       epd->mono_buf, epd->flip_buf,

@@ -237,6 +237,7 @@ static void test_dirty_identical_frames(void)
 		mono[i] = flip[i] = (u8)(i + 1);   
 
 	epd_compute_dirty_rect(h, stride, false, mono, flip,
+			       0, (int)stride - 1,
 			       0, (int)h - 1,
 			       &y0, &y1, &b0, &b1);
 
@@ -257,6 +258,7 @@ static void test_dirty_single_byte_top_left(void)
 	mono[0] = 0xFF;   
 
 	epd_compute_dirty_rect(h, stride, false, mono, flip,
+			       0, (int)stride - 1,
 			       0, (int)h - 1,
 			       &y0, &y1, &b0, &b1);
 
@@ -278,6 +280,7 @@ static void test_dirty_single_byte_interior(void)
 	mono[5 * 5 + 3] = 0xAB;   
 
 	epd_compute_dirty_rect(h, stride, false, mono, flip,
+			       0, (int)stride - 1,
 			       0, (int)h - 1,
 			       &y0, &y1, &b0, &b1);
 
@@ -300,6 +303,7 @@ static void test_dirty_multiple_rows(void)
 	mono[3 * 4 + 2] = 0x02;   
 
 	epd_compute_dirty_rect(h, stride, false, mono, flip,
+			       0, (int)stride - 1,
 			       0, (int)h - 1,
 			       &y0, &y1, &b0, &b1);
 
@@ -317,6 +321,7 @@ static void test_dirty_flip_buf_updated(void)
 	int y0, y1, b0, b1;
 
 	epd_compute_dirty_rect(h, stride, false, mono, flip,
+			       0, (int)stride - 1,
 			       0, (int)h - 1,
 			       &y0, &y1, &b0, &b1);
 
@@ -334,6 +339,7 @@ static void test_dirty_no_mirror(void)
 	int y0, y1, b0, b1;
 
 	epd_compute_dirty_rect(h, stride, false, mono, flip,
+			       0, (int)stride - 1,
 			       0, (int)h - 1,
 			       &y0, &y1, &b0, &b1);
 
@@ -352,11 +358,14 @@ static void test_dirty_mirror_x_single_byte(void)
 	int y0, y1, b0, b1;
 
 	epd_compute_dirty_rect(h, stride, true, mono, flip,
+			       0, (int)stride - 1,
 			       0, (int)h - 1,
 			       &y0, &y1, &b0, &b1);
 
-	/* mirror_x reverses byte order only; no bitrev8 (bits are already LSB-first) */
-	CHECK_EQ(flip[0], 0xAB);
+	/* mirror_x: byte-swaps and applies bitrev8 to each byte so that
+	 * LSB-first pixel ordering is preserved under horizontal reflection.
+	 * bitrev8(0xAB) = bitrev8(10101011b) = 11010101b = 0xD5 */
+	CHECK_EQ(flip[0], 0xD5);
 	CHECK_EQ(y0, 0); CHECK_EQ(y1, 0);
 	CHECK_EQ(b0, 0); CHECK_EQ(b1, 0);
 }
@@ -372,12 +381,16 @@ static void test_dirty_mirror_x_two_bytes(void)
 	int y0, y1, b0, b1;
 
 	epd_compute_dirty_rect(h, stride, true, mono, flip,
+			       0, (int)stride - 1,
 			       0, (int)h - 1,
 			       &y0, &y1, &b0, &b1);
 
-	/* mirror_x reverses byte order only: [AB,CD] → [CD,AB] */
-	CHECK_EQ(flip[0], 0xCD);
-	CHECK_EQ(flip[1], 0xAB);
+	/* mirror_x: byte-swap + bitrev8 each byte so LSB-first pixel order is
+	 * preserved under horizontal flip.
+	 * flip[0] = bitrev8(mono[1]) = bitrev8(0xCD) = 0xB3
+	 * flip[1] = bitrev8(mono[0]) = bitrev8(0xAB) = 0xD5 */
+	CHECK_EQ(flip[0], 0xB3);
+	CHECK_EQ(flip[1], 0xD5);
 }
 
 static void test_dirty_mirror_identical_after_reverse(void)
@@ -387,10 +400,11 @@ static void test_dirty_mirror_identical_after_reverse(void)
 	const u16 h = 1;
 	const u32 stride = 1;
 	u8 mono[1] = { 0xAB };
-	u8 flip[1] = { 0xAB };    /* mirror_x with stride=1: same byte, no change */
+	u8 flip[1] = { 0xD5 };    /* bitrev8(0xAB)=0xD5: already mirrors to itself, no change */
 	int y0, y1, b0, b1;
 
 	epd_compute_dirty_rect(h, stride, true, mono, flip,
+			       0, (int)stride - 1,
 			       0, (int)h - 1,
 			       &y0, &y1, &b0, &b1);
 
@@ -408,6 +422,7 @@ static void test_dirty_only_changed_cols_in_bbox(void)
 	int y0, y1, b0, b1;
 
 	epd_compute_dirty_rect(h, stride, false, mono, flip,
+			       0, (int)stride - 1,
 			       0, (int)h - 1,
 			       &y0, &y1, &b0, &b1);
 
@@ -419,10 +434,11 @@ static void test_dirty_only_changed_cols_in_bbox(void)
 
 static void test_align_no_align_needed(void)
 {
-	int b0 = 5, b1 = 6;
+	/* b0=4 (even) and b1=5 (odd) are already 2-byte aligned; no rounding needed. */
+	int b0 = 4, b1 = 5;
 	epd_align_dirty_bytes(8, false, &b0, &b1);
-	CHECK_EQ(b0, 5);
-	CHECK_EQ(b1, 6);
+	CHECK_EQ(b0, 4);
+	CHECK_EQ(b1, 5);
 }
 
 static void test_align_b0_rounds_down(void)
