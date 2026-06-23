@@ -434,11 +434,12 @@ static void test_dirty_only_changed_cols_in_bbox(void)
 
 static void test_align_no_align_needed(void)
 {
-	/* b0=4 (even) and b1=5 (odd) are already 2-byte aligned; no rounding needed. */
-	int b0 = 4, b1 = 5;
+	/* b0=4 and b1=7 are already 4-byte aligned; no rounding needed.
+	 * The needs_4byte_align flag is now ignored — alignment is always 4-byte. */
+	int b0 = 4, b1 = 7;
 	epd_align_dirty_bytes(8, false, &b0, &b1);
 	CHECK_EQ(b0, 4);
-	CHECK_EQ(b1, 5);
+	CHECK_EQ(b1, 7);
 }
 
 static void test_align_b0_rounds_down(void)
@@ -506,7 +507,7 @@ static void test_lut_m841_plain(void)
 	enum epd_lut_variant v = epd_lut_classify("M841", 4, &a2, &align);
 	CHECK_EQ(v, EPD_LUT_M841);
 	CHECK_EQ(a2, EPD_MODE_A2_M841);
-	CHECK(!align);
+	CHECK(align);
 }
 
 static void test_lut_m841_tfa2812(void)
@@ -515,7 +516,7 @@ static void test_lut_m841_tfa2812(void)
 	enum epd_lut_variant v = epd_lut_classify("M841_TFA2812", 12, &a2, &align);
 	CHECK_EQ(v, EPD_LUT_M841_TFA2812);
 	CHECK_EQ(a2, EPD_MODE_A2_M841);
-	CHECK(!align);
+	CHECK(align);
 }
 
 static void test_lut_m841_tfa5210(void)
@@ -524,7 +525,7 @@ static void test_lut_m841_tfa5210(void)
 	enum epd_lut_variant v = epd_lut_classify("M841_TFA5210", 12, &a2, &align);
 	CHECK_EQ(v, EPD_LUT_M841_TFA5210);
 	CHECK_EQ(a2, EPD_MODE_A2_M841);
-	CHECK(!align);
+	CHECK(align);
 }
 
 static void test_lut_tfa2812_not_matched_as_plain_m841(void)
@@ -542,8 +543,8 @@ static void test_lut_unknown(void)
 	u8 a2; bool align;
 	enum epd_lut_variant v = epd_lut_classify("GD_TFA2612", 10, &a2, &align);
 	CHECK_EQ(v, EPD_LUT_UNKNOWN);
-	CHECK_EQ(a2, EPD_MODE_A2_M841);   
-	CHECK(!align);
+	CHECK_EQ(a2, EPD_MODE_A2_M841);
+	CHECK(align);
 }
 
 static void test_lut_empty_string(void)

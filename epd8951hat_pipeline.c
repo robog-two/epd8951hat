@@ -142,13 +142,12 @@ void epd_compute_dirty_rect(u16 h, u32 stride, bool mirror_x,
 void epd_align_dirty_bytes(u32 stride, bool needs_4byte_align,
 			    int *b0, int *b1)
 {
-	if (needs_4byte_align) {
-		*b0 &= ~3;
-		*b1  = min(*b1 | 3, (int)stride - 1);
-	} else {
-		*b0 &= ~1;
-		*b1  = min(*b1 | 1, (int)stride - 1);
-	}
+	/* The IT8951 always requires x and width to be 4-byte (32-pixel) aligned
+	 * in 1bpp packed mode, regardless of LUT variant. needs_4byte_align is
+	 * kept for API compatibility but is no longer used as a branch. */
+	(void)needs_4byte_align;
+	*b0 &= ~3;
+	*b1  = min(*b1 | 3, (int)stride - 1);
 }
 
 enum epd_lut_variant epd_lut_classify(const char *lut_str, size_t lut_bytes,
@@ -161,21 +160,21 @@ enum epd_lut_variant epd_lut_classify(const char *lut_str, size_t lut_bytes,
 	}
 	if (strnstr(lut_str, "M841_TFA2812", lut_bytes)) {
 		*a2_mode           = EPD_MODE_A2_M841;
-		*needs_4byte_align = false;
+		*needs_4byte_align = true;
 		return EPD_LUT_M841_TFA2812;
 	}
 	if (strnstr(lut_str, "M841_TFA5210", lut_bytes)) {
 		*a2_mode           = EPD_MODE_A2_M841;
-		*needs_4byte_align = false;
+		*needs_4byte_align = true;
 		return EPD_LUT_M841_TFA5210;
 	}
 	if (strnstr(lut_str, "M841", lut_bytes)) {
 		*a2_mode           = EPD_MODE_A2_M841;
-		*needs_4byte_align = false;
+		*needs_4byte_align = true;
 		return EPD_LUT_M841;
 	}
 
 	*a2_mode           = EPD_MODE_A2_M841;
-	*needs_4byte_align = false;
+	*needs_4byte_align = true;
 	return EPD_LUT_UNKNOWN;
 }
