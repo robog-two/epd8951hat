@@ -107,6 +107,7 @@ static inline u8 get_mono_byte(bool mirror_x, const u8 *mono_buf, u32 stride, in
 
 void epd_compute_dirty_rect(u16 h, u32 stride, bool mirror_x,
 			      const u8 *mono_buf, u8 *flip_buf,
+			      int b_clip0, int b_clip1,
 			      int clip_y0, int clip_y1,
 			      int *y0_out, int *y1_out,
 			      int *b0_out, int *b1_out)
@@ -115,9 +116,11 @@ void epd_compute_dirty_rect(u16 h, u32 stride, bool mirror_x,
 	int b0 = (int)stride, b1 = -1;
 	int y_start = max(clip_y0, 0);
 	int y_end   = min(clip_y1, (int)h - 1);
+	int b_start = max(b_clip0, 0);
+	int b_end   = min(b_clip1, (int)stride - 1);
 
 	for (int y = y_start; y <= y_end; y++) {
-		for (int b = 0; b < (int)stride; b++) {
+		for (int b = b_start; b <= b_end; b++) {
 			u8 nb = get_mono_byte(mirror_x, mono_buf, stride, y, b);
 
 			if (nb == flip_buf[(size_t)y * stride + b])

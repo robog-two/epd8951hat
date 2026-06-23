@@ -45,10 +45,13 @@ void epd_dither_xrgb8888_fn(u16 w, u16 h, u32 stride,
 
 
 
-/* clip_y0/clip_y1 restrict the diff scan to the same band used for dithering.
- * Only rows in [clip_y0, clip_y1] are compared against flip_buf. */
+/* clip_y0/clip_y1 restrict the diff scan to the row band used for dithering.
+ * b_clip0/b_clip1 restrict it to a byte-column range (inclusive) derived from
+ * the DRM damage x bounds, so only the columns that actually changed are
+ * considered. Pass 0 / stride-1 to scan the full width. */
 void epd_compute_dirty_rect(u16 h, u32 stride, bool mirror_x,
 			      const u8 *mono_buf, u8 *flip_buf,
+			      int b_clip0, int b_clip1,
 			      int clip_y0, int clip_y1,
 			      int *y0_out, int *y1_out,
 			      int *b0_out, int *b1_out);

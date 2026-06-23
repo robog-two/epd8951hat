@@ -168,9 +168,11 @@ static void epd_refresh_work_fn(struct work_struct *work)
 	struct drm_rect damage;
 	bool has_damage;
 	bool caught_up;
+	int rec_x0 = INT_MAX, rec_x1 = -1;
 	int rec_y0 = INT_MAX, rec_y1 = -1;
 	bool rec_full = false;
 	unsigned long flags;
+	int clip_x0, clip_x1;
 	int clip_y0, clip_y1;
 	int ret;
 
@@ -197,9 +199,13 @@ static void epd_refresh_work_fn(struct work_struct *work)
 	spin_lock_irqsave(&epd->pending_lock, flags);
 	caught_up = (epd->pending_fb == NULL);
 	if (caught_up) {
+		rec_x0   = epd->acc_x0;
+		rec_x1   = epd->acc_x1;
 		rec_y0   = epd->acc_y0;
 		rec_y1   = epd->acc_y1;
 		rec_full = epd->acc_full;
+		epd->acc_x0   = INT_MAX;
+		epd->acc_x1   = -1;
 		epd->acc_y0   = INT_MAX;
 		epd->acc_y1   = -1;
 		epd->acc_full = false;
@@ -208,23 +214,32 @@ static void epd_refresh_work_fn(struct work_struct *work)
 
 	if (caught_up) {
 		if (rec_full || !has_damage) {
+			clip_x0 = 0;
+			clip_x1 = (int)epd->panel_w - 1;
 			clip_y0 = 0;
 			clip_y1 = (int)epd->panel_h - 1;
 		} else {
-			/* deferred band unioned with the delta we just consumed */
+			/* deferred rect unioned with the delta we just consumed */
+			clip_x0 = max_t(int, min(rec_x0, (int)damage.x1), 0);
+			clip_x1 = min_t(int, max(rec_x1, (int)damage.x2 - 1),
+					(int)epd->panel_w - 1);
 			clip_y0 = max_t(int, min(rec_y0, damage.y1), 0);
 			clip_y1 = min_t(int, max(rec_y1, damage.y2 - 1),
 					(int)epd->panel_h - 1);
 		}
 	} else if (has_damage) {
+		clip_x0 = max_t(int, (int)damage.x1, 0);
+		clip_x1 = min_t(int, (int)damage.x2 - 1, (int)epd->panel_w - 1);
 		clip_y0 = max_t(int, damage.y1, 0);
 		clip_y1 = min_t(int, damage.y2 - 1, (int)epd->panel_h - 1);
 	} else {
+		clip_x0 = 0;
+		clip_x1 = (int)epd->panel_w - 1;
 		clip_y0 = 0;
 		clip_y1 = (int)epd->panel_h - 1;
 	}
 
-	if (clip_y0 > clip_y1) {
+	if (clip_x0 > clip_x1 || clip_y0 > clip_y1) {
 		drm_framebuffer_put(fb);
 		return;
 	}
@@ -244,7 +259,7 @@ static void epd_refresh_work_fn(struct work_struct *work)
 	drm_gem_shmem_vunmap(shmem, &src_map);
 	drm_framebuffer_put(fb);
 
-	epd_do_refresh(epd, clip_y0, clip_y1);
+	epd_do_refresh(epd, clip_x0, clip_x1, clip_y0, clip_y1);
 }
 
 
@@ -357,12 +372,14 @@ static void epd_pipe_update(struct drm_simple_display_pipe *pipe,
 	epd->pending_damage     = damage;        /* newest delta: rendered first */
 	epd->pending_has_damage = has_damage;
 
-	/* Accumulate every commit into the deferred-dirty band so coalesced
+	/* Accumulate every commit into the deferred-dirty rect so coalesced
 	 * intermediate damage is never forgotten; the worker reconciles it once
 	 * it catches up. */
 	if (!has_damage) {
 		epd->acc_full = true;
 	} else {
+		epd->acc_x0 = min(epd->acc_x0, (int)damage.x1);
+		epd->acc_x1 = max(epd->acc_x1, (int)damage.x2 - 1);
 		epd->acc_y0 = min(epd->acc_y0, damage.y1);
 		epd->acc_y1 = max(epd->acc_y1, damage.y2 - 1);
 	}
@@ -427,6 +444,8 @@ static int epd_probe(struct spi_device *spi)
 	mutex_init(&epd->refresh_mutex);
 	INIT_WORK(&epd->refresh_work, epd_refresh_work_fn);
 	INIT_DELAYED_WORK(&epd->idle_work, epd_idle_work_fn);
+	epd->acc_x0   = INT_MAX;
+	epd->acc_x1   = -1;
 	epd->acc_y0   = INT_MAX;
 	epd->acc_y1   = -1;
 	epd->acc_full = false;

@@ -9,15 +9,23 @@
 #include "epd8951hat.h"
 #include "epd8951hat_pipeline.h"
 
-void epd_do_refresh(struct epd_device *epd, int clip_y0, int clip_y1)
+void epd_do_refresh(struct epd_device *epd,
+		    int clip_x0, int clip_x1,
+		    int clip_y0, int clip_y1)
 {
 	u16 h      = epd->panel_h;
 	u32 stride = epd->fb_stride;
+	int b_clip0, b_clip1;
 	int y0, y1, b0, b1;
 	int ret;
 
+	/* Convert pixel x bounds to inclusive byte-column bounds for the diff. */
+	b_clip0 = max(clip_x0 / 8, 0);
+	b_clip1 = min(clip_x1 / 8, (int)stride - 1);
+
 	epd_compute_dirty_rect(h, stride, epd->mirror_x,
 			       epd->mono_buf, epd->flip_buf,
+			       b_clip0, b_clip1,
 			       clip_y0, clip_y1,
 			       &y0, &y1, &b0, &b1);
 

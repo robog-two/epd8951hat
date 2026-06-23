@@ -188,6 +188,7 @@ struct epd_device {
 	 * fully reconciled. Rendered (and cleared) once the worker catches up so
 	 * changes deferred during fast motion still reach the panel. Empty when
 	 * acc_y0 > acc_y1. Protected by pending_lock. */
+	int                     acc_x0, acc_x1;
 	int                     acc_y0, acc_y1;
 	bool                    acc_full;           /* a coalesced commit needs a full frame */
 	spinlock_t              pending_lock;
@@ -234,7 +235,9 @@ int  epd_full_clear(struct epd_device *epd);
 
 
 
-void epd_do_refresh(struct epd_device *epd, int clip_y0, int clip_y1);
+void epd_do_refresh(struct epd_device *epd,
+		    int clip_x0, int clip_x1,
+		    int clip_y0, int clip_y1);
 
 /* Full-screen clean refresh of the current shadow buffer using waveform `mode`
  * (e.g. EPD_CLEAN_MODE). Caller must hold epd->refresh_mutex. */
