@@ -117,7 +117,7 @@
 #define EPD_DEFAULT_VCOM           2000u
 
 /* Idle period (ms) with no screen change before a single clean refresh runs. */
-#define EPD_IDLE_CLEAN_MS         30000u
+#define EPD_IDLE_CLEAN_MS         3000u
 
 
 

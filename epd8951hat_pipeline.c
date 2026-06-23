@@ -26,7 +26,8 @@ static void apply_threshold_dithering(u16 w, u32 stride,
 		const u8 *row = src + (size_t)y * src_pitch;
 		for (int x = 0; x < (int)w; x++) {
 			int g = rgb8888_to_grayscale(&row[x * 4]);
-			if (g < 128)
+			/* bit set = white, bit clear = black (IT8951 1bpp convention) */
+			if (g >= 128)
 				mono_buf[(size_t)y * stride + x / 8] |= (u8)(1u << (x & 7));
 		}
 	}
@@ -47,11 +48,12 @@ static void apply_floyd_steinberg(u16 w, u32 stride,
 			int val  = clamp(gray + err_cur[x + 1] / 16, 0, 255);
 			int new_val, err;
 
-			if (val < 128) {
-				new_val = 0;
+			/* bit set = white, bit clear = black (IT8951 1bpp convention) */
+			if (val >= 128) {
+				new_val = 255;
 				mono_buf[(size_t)y * stride + x / 8] |= (u8)(1u << (x & 7));
 			} else {
-				new_val = 255;
+				new_val = 0;
 			}
 
 			err = val - new_val;
